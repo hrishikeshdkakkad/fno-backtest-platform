@@ -660,6 +660,9 @@ def _compute_signals(snap_vals: dict) -> list[Signal]:
     return [s1, s2, s3, s4, s5, s6, s7, s8]
 
 
+_V3_GATE_LOGGER = logging.getLogger("nfo.regime_watch.v3_gate")
+
+
 def _compute_v3_gate(
     *,
     entry_date: date,
@@ -672,24 +675,170 @@ def _compute_v3_gate(
     iv_rank_12mo: float,
     short_strike_iv: float = float("nan"),
 ) -> tuple[bool, str, list[str]]:
-    """Optimal filter gate from 2026-04 iterative redesign backtest (V3).
+    """V3 gate, routed through engine.triggers (master design §12 item 4).
 
-    This is a STRUCTURAL rule — not a score threshold. Pass requires ALL of:
+    Pre-P4: decision logic was inlined here with module-level thresholds
+    (``IV_RV_SPREAD_RICH``, ``VIX_RICH``, etc.) that drifted from
+    ``configs/nfo/strategies/v3_frozen.yaml``. Post-P4: the spec is canonical;
+    regime_watch becomes a thin TUI over ``engine.triggers``.
 
-      1. IV - RV ≥ -2pp                 (rich-enough premium)
-      2. Trend filter ≥ 2/3             (not in confirmed downtrend)
-      3. V3 event check == "low"/"medium" only
-         (no RBI/FOMC/Budget in first 10 days of cycle; CPI demoted)
-      4. ≥ 1 of:
-         VIX > 20          OR
-         VIX 3-mo %ile ≥ 0.80  OR
-         IV Rank 12-mo ≥ 0.60
+    Callers still receive ``(passed, v3_event_severity, reasoning_lines)`` —
+    the tuple shape is preserved. The spec values may differ from the legacy
+    module constants (e.g. ``iv_minus_rv_min_vp = -2.0`` vs
+    ``IV_RV_SPREAD_RICH = 0.0``). That drift is the whole point of P4-D1.
 
-    Returns (passed, v3_event_severity, reasoning_lines). This is DISPLAY-ONLY
-    — the 8-signal grade still drives the existing UI. V3 shows up as an
-    advisory badge next to the grade so the user can build intuition before
-    paper-trading and promoting to live.
+    Side effect: emits a ``MonitorSnapshot`` JSONL record (best-effort — any
+    errors are swallowed so the TUI can never crash on the monitor store).
     """
+    from nfo.config import ROOT
+    from nfo.engine.triggers import TriggerEvaluator
+    from nfo.specs.loader import load_strategy
+
+    strat_path = ROOT / "configs" / "nfo" / "strategies" / "v3_frozen.yaml"
+    try:
+        spec, spec_hash_hex = load_strategy(strat_path)
+    except Exception as exc:  # pragma: no cover — spec should always load
+        _V3_GATE_LOGGER.warning(
+            "V3 spec load failed (%s); using legacy inline gate", exc
+        )
+        return _compute_v3_gate_legacy(
+            entry_date=entry_date,
+            dte=dte,
+            atm_iv=atm_iv,
+            rv_30=rv_30,
+            trend_score=trend_score,
+            vix=vix,
+            vix_pct_3mo=vix_pct_3mo,
+            iv_rank_12mo=iv_rank_12mo,
+            short_strike_iv=short_strike_iv,
+        )
+
+    # Resolve V3 event severity via the Parallel-backed helper — regime_watch's
+    # existing integration stays authoritative for live events.
+    v3_sev = "low"
+    if _HAS_PARALLEL and events is not None:
+        try:
+            flag = events.v3_event_risk_flag(entry_date, dte)
+            v3_sev = flag.severity
+        except Exception as exc:
+            _V3_GATE_LOGGER.warning("V3 event severity lookup failed: %s", exc)
+            v3_sev = "unknown"
+
+    # Build the features row the engine expects. Prefer strike-specific IV
+    # (short-leg IV) when available — that's what actually prices the spread's
+    # short-put exposure; fall back to ATM IV when the spread isn't built yet.
+    iv_for_signal = (
+        short_strike_iv
+        if math.isfinite(short_strike_iv) and short_strike_iv > 0
+        else atm_iv
+    )
+    iv_source = (
+        "short-strike"
+        if math.isfinite(short_strike_iv) and short_strike_iv > 0
+        else "ATM"
+    )
+    if math.isfinite(iv_for_signal) and math.isfinite(rv_30):
+        iv_minus_rv = iv_for_signal - rv_30
+    else:
+        iv_minus_rv = float("nan")
+
+    row = pd.Series(
+        {
+            "date": pd.Timestamp(entry_date),
+            "vix": vix,
+            "vix_pct_3mo": vix_pct_3mo,
+            "iv_minus_rv": iv_minus_rv,
+            "iv_rank_12mo": iv_rank_12mo,
+            "trend_score": trend_score,
+            "dte": dte,
+            "event_risk_v3": v3_sev,
+        }
+    )
+
+    evaluator = TriggerEvaluator(spec)
+    result = evaluator.evaluate_row(row, atr_value=float("nan"))
+    passed = bool(result.fired)
+
+    # Build reasoning lines for the TUI — mirror the legacy format but source
+    # thresholds from the spec, not module constants.
+    reasoning: list[str] = []
+    detail = result.detail
+    thr = spec.trigger_rule.feature_thresholds
+    iv_rv_thr = float(thr.get("iv_minus_rv_min_vp", 0.0))
+    trend_thr = int(thr.get("trend_score_min", 2))
+    vix_abs_thr = float(thr.get("vix_abs_min", 20.0))
+    vix_pct_thr = float(thr.get("vix_pct_3mo_min", 0.80))
+    iv_rank_thr = float(thr.get("iv_rank_min", 0.60))
+    window_days = spec.trigger_rule.event_window_days
+
+    if math.isfinite(iv_minus_rv):
+        reasoning.append(
+            f"IV-RV {iv_minus_rv:+.1f}pp ≥ {iv_rv_thr:+.1f} "
+            f"({iv_source} IV={iv_for_signal:.1f}%): "
+            f"{'✓' if detail.get('s3') else '✗'}"
+        )
+    else:
+        reasoning.append("IV-RV: unavailable ✗")
+    reasoning.append(
+        f"Trend {trend_score}/3 ≥ {trend_thr}: "
+        f"{'✓' if detail.get('s6') else '✗'}"
+    )
+    reasoning.append(
+        f"V3-event[{v3_sev}, first {window_days}d, RBI/FOMC/Budget only]: "
+        f"{'✓' if detail.get('s8') else '✗'}"
+    )
+    any_vol_pass = bool(
+        detail.get("s1") or detail.get("s2") or detail.get("s5")
+    )
+    reasoning.append(
+        f"Any-vol (VIX>{vix_abs_thr:.0f} or pct≥{vix_pct_thr:.0%} or "
+        f"IVr≥{iv_rank_thr:.0%}): {'✓' if any_vol_pass else '✗'}"
+    )
+
+    # Emit MonitorSnapshot (best-effort; never crash TUI).
+    try:
+        from nfo.monitor.snapshot import capture_snapshot
+        from nfo.monitor.store import append_snapshot
+
+        # target_expiry: entry_date + dte days (real expiry lookup is a
+        # TUI-side concern that can upgrade this later).
+        target_expiry = (
+            entry_date + timedelta(days=dte) if dte > 0 else entry_date
+        )
+        snap = capture_snapshot(
+            spec=spec,
+            spec_hash=spec_hash_hex,
+            features_row=row,
+            atr_value=float("nan"),
+            target_expiry=target_expiry,
+            current_state="fire" if passed else "watch",
+            first_fire_date=entry_date if passed else None,
+            current_grade="",
+            now=datetime.now(timezone.utc),
+        )
+        snapshots_root = ROOT / "data" / "nfo" / "monitor_snapshots"
+        append_snapshot(snap, root=snapshots_root)
+    except Exception as exc:  # pragma: no cover — TUI robustness
+        _V3_GATE_LOGGER.debug("MonitorSnapshot emit failed: %s", exc)
+
+    return passed, v3_sev, reasoning
+
+
+def _compute_v3_gate_legacy(
+    *,
+    entry_date: date,
+    dte: int,
+    atm_iv: float,
+    rv_30: float,
+    trend_score: int,
+    vix: float,
+    vix_pct_3mo: float,
+    iv_rank_12mo: float,
+    short_strike_iv: float = float("nan"),
+) -> tuple[bool, str, list[str]]:
+    """Legacy pre-P4 inline V3 gate. Retained as a fallback for the rare case
+    where the YAML spec can't load; the canonical path is ``_compute_v3_gate``
+    (master design §12 item 4)."""
     reasoning: list[str] = []
 
     # (1) IV-RV. Prefer strike-specific IV (short-leg IV) when available —
