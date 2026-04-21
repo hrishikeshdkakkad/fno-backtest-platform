@@ -24,6 +24,7 @@ data/nfo/events.parquet
 data/nfo/macro_brief.json
 data/nfo/fii_dii_flow.parquet
 data/nfo/parallel_cost_log.parquet
+data/nfo/datasets/
 
 # Run artifacts — platform rebuilds these on demand
 results/nfo/runs/
