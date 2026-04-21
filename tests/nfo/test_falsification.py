@@ -124,14 +124,23 @@ def test_run_allocation_sweep_linear_fixed_pnl(v3f, synthetic_matched: pd.DataFr
 
 
 def test_walk_forward_window_produces_row_per_window(v3f, monkeypatch) -> None:
-    """`run_walk_forward` must emit exactly one row per (window, variant),
-    regardless of whether V3 fires. We stub the V3 firing function so the
-    test stays independent of `results/nfo/historical_signals.parquet`.
+    """`run_walk_forward` must emit exactly one row per (window, variant).
+
+    After P5-E2 the helper routes through `nfo.studies.falsification.run_falsification`
+    (engine-backed); feature values below are dialed up to ensure the V3
+    specific-pass gate fires on every session.
     """
-    # Build tiny stand-ins that the real function will consume.
+    # Signals that satisfy every V3 gate (s3/s6/s8 core + vol signal).
     signals_df = pd.DataFrame({
         "date": pd.to_datetime(["2024-02-20", "2024-03-20"]),
         "target_expiry": ["2024-03-26", "2024-04-30"],
+        "vix": [25.0, 25.0],
+        "vix_pct_3mo": [0.9, 0.9],
+        "iv_minus_rv": [1.5, 1.5],
+        "iv_rank_12mo": [0.75, 0.75],
+        "trend_score": [3.0, 3.0],
+        "event_risk_v3": ["none", "none"],
+        "dte": [35, 35],
     })
     trades = pd.DataFrame({
         "entry_date": ["2024-02-20", "2024-03-20"],
@@ -146,24 +155,21 @@ def test_walk_forward_window_produces_row_per_window(v3f, monkeypatch) -> None:
         ("2024-01-01", "2024-02-29", "2024-03-01", "2024-04-30"),
     ]
 
-    # Monkey-patch the imported redesign_variants module's symbols so
-    # `get_firing_dates` always says "fire on every session". That exercises
-    # the downstream grouping/matching logic without needing the real ATR
-    # cache or signal parquet.
+    # Patch the legacy-RV loader so `_load_rv_module` inside `run_walk_forward`
+    # doesn't need the cached ATR parquet; the engine's TriggerEvaluator uses
+    # only the features_df + event_resolver.
     import sys
     scripts_dir = str(_MODULE_PATH.parent)
     if scripts_dir not in sys.path:
         sys.path.insert(0, scripts_dir)
     import redesign_variants as rv
-
-    def fake_get_firing_dates(variant, df, atr):
-        return [(d.date(), {}) for d in df["date"]]
-
-    monkeypatch.setattr(rv, "get_firing_dates", fake_get_firing_dates)
     monkeypatch.setattr(
         rv, "load_nifty_atr",
         lambda s: pd.Series([100.0] * len(s), index=pd.to_datetime(s.values)),
     )
+    # Event pass unconditionally — 'none' event_risk_v3 above is interpreted
+    # by the engine as "no high-impact event in the window".
+    monkeypatch.setattr(rv, "_event_pass", lambda *a, **k: True)
 
     df = v3f.run_walk_forward(signals_df, trades, windows=windows, pt_variant="pt50")
     assert len(df) == 1
@@ -178,9 +184,18 @@ def test_walk_forward_window_produces_row_per_window(v3f, monkeypatch) -> None:
 def test_walk_forward_returns_empty_when_no_fires(v3f, monkeypatch) -> None:
     """If V3 never fires, every row still has the window metadata and
     n_matched == 0 for both train and test."""
+    # Features below miss every vol gate (vix low, iv_rank low, vix_pct low)
+    # so the V3 specific-pass gate rejects every session.
     signals_df = pd.DataFrame({
         "date": pd.to_datetime(["2024-02-20"]),
         "target_expiry": ["2024-03-26"],
+        "vix": [10.0],
+        "vix_pct_3mo": [0.1],
+        "iv_minus_rv": [1.5],
+        "iv_rank_12mo": [0.1],
+        "trend_score": [3.0],
+        "event_risk_v3": ["none"],
+        "dte": [35],
     })
     trades = pd.DataFrame(columns=[
         "entry_date", "expiry_date", "param_delta", "param_width",
@@ -193,11 +208,11 @@ def test_walk_forward_returns_empty_when_no_fires(v3f, monkeypatch) -> None:
     if scripts_dir not in sys.path:
         sys.path.insert(0, scripts_dir)
     import redesign_variants as rv
-    monkeypatch.setattr(rv, "get_firing_dates", lambda *a, **k: [])
     monkeypatch.setattr(
         rv, "load_nifty_atr",
         lambda s: pd.Series([100.0] * len(s), index=pd.to_datetime(s.values)),
     )
+    monkeypatch.setattr(rv, "_event_pass", lambda *a, **k: True)
 
     df = v3f.run_walk_forward(signals_df, trades, windows=windows, pt_variant="hte")
     assert len(df) == 1

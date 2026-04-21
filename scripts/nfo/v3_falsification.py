@@ -17,11 +17,20 @@ Runs the five realism tests requested (in order):
 
 All tests honour `docs/v3-spec-frozen.md` — no thresholds, cost constants,
 or match rules change inside this script.
+
+P5-E2: matched-trade selection + walk-forward both route through
+`nfo.studies.falsification.run_falsification` (engine-backed); the legacy
+`run_tail_loss_injection`, `run_allocation_sweep`, `run_walk_forward`
+helpers below are kept so the 4 legacy artifacts (`falsify_tail_loss.csv`,
+`falsify_allocation.csv`, `falsify_walkforward.csv`, `falsification_report.md`)
+preserve their wide multi-variant schemas.
 """
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import logging
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -29,13 +38,14 @@ import numpy as np
 import pandas as pd
 
 from nfo import calibrate
-from nfo.config import RESULTS_DIR
+from nfo.config import RESULTS_DIR, ROOT
 from nfo.robustness import (
     compute_equity_curves,
-    get_v3_matched_trades,
     inject_tail_losses,
     load_trades_with_gaps,
 )
+from nfo.specs.loader import load_strategy
+from nfo.studies.falsification import run_falsification
 
 log = logging.getLogger("v3_falsification")
 
@@ -43,6 +53,20 @@ SIGNALS_PATH = RESULTS_DIR / "historical_signals.parquet"
 EXIT_SWEEP_CSV = RESULTS_DIR / "exit_sweep_trades.csv"
 ENTRY_PERT_CSV = RESULTS_DIR / "entry_perturbation_trades.csv"
 VARIANTS = ("pt50", "hte")
+_HERE = Path(__file__).resolve().parent
+
+
+def _load_rv_module(alias: str = "_legacy_rv_falsification"):
+    """Import `scripts/nfo/redesign_variants.py` directly (scripts/ isn't a
+    package). Used for the legacy event-resolver + cached-parquet ATR loader.
+    """
+    spec = importlib.util.spec_from_file_location(
+        alias, _HERE / "redesign_variants.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[alias] = mod
+    spec.loader.exec_module(mod)
+    return mod
 
 
 def _format_inr(x: float) -> str:
@@ -155,29 +179,37 @@ def run_walk_forward(
 ) -> pd.DataFrame:
     """Test the FROZEN V3 rule on rolling train/test windows.
 
-    Uses `redesign_variants.get_firing_dates` with the V3 variant (exact
-    frozen spec: specific-pass gate over s3 ∧ s6 ∧ s8 ∧ (s1 ∨ s2 ∨ s5),
-    min_score=4), then matches resulting cycles to real trades at
-    `param_width == 100.0` + the selected `pt_variant`. This differs from
-    the earlier implementation, which searched for *new* thresholds on
-    each train window — that tests a tuner, not the frozen V3 rule.
+    Routes through `nfo.studies.falsification.run_falsification` so the
+    trigger + cycle + trade-matching path is the engine's. For each window
+    we slice `signals_df` to the window's date range, call the study, and
+    read `matched_trades` back; `summary_stats` is taken from
+    `baseline_stats`. The window metadata + per-lot Sharpe convention
+    (√252 annualisation via `calibrate.summary_stats`) are preserved so
+    the legacy CSV + markdown tables stay byte-identical.
 
     For each window we compute summary stats on the train-period fires
     and on the test-period fires. If a V3 rule that worked in-sample
     also works out-of-sample, train and test Sharpe should be similar in
     sign/magnitude.
     """
-    import sys
-    sys.path.insert(0, str(Path(__file__).parent))
-    import redesign_variants as rv  # noqa: E402
-
-    v3 = next(v for v in rv.make_variants() if v.name == "V3")
-    atr_series = rv.load_nifty_atr(signals_df["date"])
+    # Import via `sys.path` (not `importlib.util.spec_from_file_location`) so
+    # `monkeypatch.setattr(rv, ...)` in unit tests lands on the same module
+    # instance this function reads; the engine's trigger-eval + matching
+    # path reads `atr_series` and `_event_pass` through the captured `rv`.
+    if str(_HERE) not in sys.path:
+        sys.path.insert(0, str(_HERE))
+    import redesign_variants as rv  # noqa: E402 — scripts/ dir injected above
+    spec, _ = load_strategy(ROOT / "configs" / "nfo" / "strategies" / "v3_frozen.yaml")
 
     signals_df = signals_df.copy()
     signals_df["date"] = pd.to_datetime(signals_df["date"])
-    trades = trades.copy()
-    trades["entry_date"] = pd.to_datetime(trades["entry_date"])
+    atr_series = rv.load_nifty_atr(signals_df["date"])
+
+    def _event_resolver(entry, dte):
+        return "high" if not rv._event_pass(
+            entry, dte, severity_high_kinds={"RBI", "FOMC", "BUDGET"},
+            window_days=10,
+        ) else "none"
 
     def _matched_in_window(start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
         slice_signals = signals_df[
@@ -185,29 +217,17 @@ def run_walk_forward(
         ].copy()
         if slice_signals.empty:
             return pd.DataFrame()
-        fires = rv.get_firing_dates(v3, slice_signals, atr_series)
-        if not fires:
-            return pd.DataFrame()
-        # Group by target_expiry to get one cycle per expiry.
-        by_expiry: dict[str, pd.Timestamp] = {}
-        for fire_date, _ in fires:
-            row = slice_signals[slice_signals["date"].dt.date == fire_date]
-            if row.empty:
-                continue
-            exp = str(row["target_expiry"].iloc[0])
-            if not exp:
-                continue
-            ts = pd.Timestamp(fire_date)
-            if exp not in by_expiry or ts < by_expiry[exp]:
-                by_expiry[exp] = ts
-        # Match at frozen trade-matching rules (param_width == 100.0).
-        from nfo.robustness import pick_trade_for_expiry
-        matched: list[pd.Series] = []
-        for exp in sorted(by_expiry):
-            t = pick_trade_for_expiry(trades, exp, pt_variant)
-            if t is not None:
-                matched.append(t)
-        return pd.DataFrame(matched) if matched else pd.DataFrame()
+        result = run_falsification(
+            spec=spec, features_df=slice_signals, atr_series=atr_series,
+            trades_df=trades, pt_variant=pt_variant,
+            capital_inr=1_000_000, years=max((end - start).days / 365.25, 1e-9),
+            # The per-window study only needs matched_trades; drop the
+            # (expensive) Monte-Carlo + sweep sections by setting them empty.
+            tail_loss_injections=[], tail_loss_iterations=0,
+            allocation_fractions=[], walkforward_folds=0,
+            event_resolver=_event_resolver, seed=42,
+        )
+        return result.matched_trades
 
     rows = []
     for train_start, train_end, test_start, test_end in windows:
@@ -240,13 +260,41 @@ def run_walk_forward(
 
 
 def _load_matched() -> tuple[dict[str, pd.DataFrame], float]:
+    """Engine-backed matched-trade selection (one DataFrame per pt-variant).
+
+    Replaces the legacy pair of `get_v3_matched_trades` calls with
+    `nfo.studies.falsification.run_falsification`; the Monte-Carlo + sweep
+    branches are disabled (zero iterations / empty fraction lists) so this
+    call only exercises the trigger + cycle + trade-matching path.
+    """
     signals_df = pd.read_parquet(SIGNALS_PATH)
     signals_df["date"] = pd.to_datetime(signals_df["date"])
     trades = load_trades_with_gaps()
     start = signals_df["date"].min().date()
     end = signals_df["date"].max().date()
     years = (end - start).days / 365.25
-    matched = {v: get_v3_matched_trades(signals_df, trades, v) for v in VARIANTS}
+
+    spec, _ = load_strategy(ROOT / "configs" / "nfo" / "strategies" / "v3_frozen.yaml")
+    rv = _load_rv_module()
+    atr_series = rv.load_nifty_atr(signals_df["date"])
+
+    def _event_resolver(entry, dte):
+        return "high" if not rv._event_pass(
+            entry, dte, severity_high_kinds={"RBI", "FOMC", "BUDGET"},
+            window_days=10,
+        ) else "none"
+
+    matched: dict[str, pd.DataFrame] = {}
+    for variant in VARIANTS:
+        result = run_falsification(
+            spec=spec, features_df=signals_df, atr_series=atr_series,
+            trades_df=trades, pt_variant=variant,
+            capital_inr=1_000_000, years=years,
+            tail_loss_injections=[], tail_loss_iterations=0,
+            allocation_fractions=[], walkforward_folds=0,
+            event_resolver=_event_resolver, seed=42,
+        )
+        matched[variant] = result.matched_trades
     return matched, years
 
 
