@@ -2,7 +2,7 @@
   "strategies": {
     "v3@3.0.0": {
       "hash": "b1371c192cbc98f168ae1418dc1f630ac1133e0f0509ccc97c15a7c9bd0813a0",
-      "loaded_at": "2026-04-21T22:18:33.522122+00:00",
+      "loaded_at": "2026-04-21T22:24:55.580513+00:00",
       "path": "/Users/hrishikeshkakkad/Documents/market/csp/configs/nfo/strategies/v3_frozen.yaml"
     },
     "v3@3.0.1": {
