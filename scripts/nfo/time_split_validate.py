@@ -15,12 +15,20 @@ Decision framework:
     reject the overfitting hypothesis.
 
 Output: `results/nfo/time_split_report.md`.
+
+P5-C2 shadow migration: V3's metrics are still computed authoritatively by
+the legacy `_rv.evaluate_variant` pipeline (which counts *all* trades whose
+entry_date lands on a V3 firing day), while `nfo.studies.time_split.run_time_split`
+runs alongside on the cycle-matched selection (one trade per firing cycle)
+and the verdict is logged for drift monitoring. The legacy V0-V6 iteration
+and markdown report format are preserved byte-for-byte; only the V3 engine
+shadow is new.
 """
 from __future__ import annotations
 
 import argparse
 import logging
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -136,7 +144,62 @@ def _write_report(
     return "\n".join(lines)
 
 
+def _shadow_v3_time_split(
+    signals_df: pd.DataFrame,
+    trades_df: pd.DataFrame,
+    atr_series: pd.Series,
+    *,
+    split_date: date,
+    window_start: date,
+    window_end: date,
+) -> Any:
+    """Run `nfo.studies.time_split.run_time_split` for V3 as a shadow.
+
+    Non-authoritative: the legacy `_rv.evaluate_variant` path remains the
+    source of truth for the markdown report. The engine shadow logs its
+    cycle-matched train/test split and verdict so drift is visible in the
+    log stream. Exceptions are swallowed so the shadow can never break
+    the report pipeline.
+    """
+    try:
+        from nfo.config import ROOT as _ROOT
+        from nfo.specs.loader import load_strategy
+        from nfo.studies.time_split import run_time_split
+
+        spec, _ = load_strategy(_ROOT / "configs" / "nfo" / "strategies" / "v3_frozen.yaml")
+
+        def _event_resolver(entry, dte):
+            return "high" if not _rv._event_pass(
+                entry, dte, severity_high_kinds={"RBI", "FOMC", "BUDGET"}, window_days=10,
+            ) else "none"
+
+        result = run_time_split(
+            spec=spec, features_df=signals_df, atr_series=atr_series,
+            trades_df=trades_df,
+            train_window=(window_start, split_date - timedelta(days=1)),
+            test_window=(split_date, window_end),
+            event_resolver=_event_resolver,
+        )
+        log.info(
+            "V3 engine shadow: n_train=%d n_test=%d verdict=%s "
+            "(train_win=%.0f%% sharpe=%+.2f | test_win=%.0f%% sharpe=%+.2f)",
+            result.n_train, result.n_test, result.verdict,
+            result.train_stats.win_rate * 100, result.train_stats.sharpe,
+            result.test_stats.win_rate * 100, result.test_stats.sharpe,
+        )
+        return result
+    except Exception as exc:  # pragma: no cover - defensive
+        log.warning("V3 engine time-split shadow failed: %s", exc)
+        return None
+
+
 def _legacy_main(argv: list[str] | None = None) -> dict[str, Any]:
+    """Legacy multi-variant (V3-V6) time-split evaluation + markdown report.
+
+    V3 is additionally run through the engine via
+    `nfo.studies.time_split.run_time_split` as a shadow; the legacy numbers
+    remain authoritative (see module docstring for rationale).
+    """
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--split-date", default="2025-01-01",
                    help="Train cutoff: all trades with entry < this date go into train.")
@@ -161,35 +224,28 @@ def _legacy_main(argv: list[str] | None = None) -> dict[str, Any]:
     wanted = {v.strip() for v in args.variants.split(",")}
     variants = [v for v in all_variants if v.name in wanted]
 
-    # Full is just the normal evaluation over the entire frame.
     sigs_train, trd_train = _filter_by_date(signals_df, trades_df, window_start, split_date)
-    sigs_test, trd_test = _filter_by_date(signals_df, trades_df, split_date, window_end + pd.Timedelta(days=1))
-
+    sigs_test, trd_test = _filter_by_date(
+        signals_df, trades_df, split_date, window_end + pd.Timedelta(days=1),
+    )
     log.info("Train: %d signal-days, %d trades", len(sigs_train), len(trd_train))
     log.info("Test : %d signal-days, %d trades", len(sigs_test), len(trd_test))
 
     per_variant: dict[str, dict[str, dict]] = {}
     for v in variants:
         log.info("Evaluating %s (%s)", v.name, v.description)
-        r_full = _rv.evaluate_variant(v, signals_df, trades_df, atr_series)
-        r_train = _rv.evaluate_variant(v, sigs_train, trd_train, atr_series)
-        r_test = _rv.evaluate_variant(v, sigs_test, trd_test, atr_series)
-        per_variant[v.name] = {"full": r_full, "train": r_train, "test": r_test}
-        log.info(
-            "  full:  fires=%d  trades=%d  win=%s  sharpe=%s",
-            r_full["firing_days"], r_full["filtered_trades"] or 0,
-            f"{(r_full['win_rate'] or 0)*100:.0f}%", r_full["sharpe"],
-        )
-        log.info(
-            "  train: fires=%d  trades=%d  win=%s  sharpe=%s",
-            r_train["firing_days"], r_train["filtered_trades"] or 0,
-            f"{(r_train['win_rate'] or 0)*100:.0f}%", r_train["sharpe"],
-        )
-        log.info(
-            "  test:  fires=%d  trades=%d  win=%s  sharpe=%s",
-            r_test["firing_days"], r_test["filtered_trades"] or 0,
-            f"{(r_test['win_rate'] or 0)*100:.0f}%", r_test["sharpe"],
-        )
+        per_variant[v.name] = {
+            "full": _rv.evaluate_variant(v, signals_df, trades_df, atr_series),
+            "train": _rv.evaluate_variant(v, sigs_train, trd_train, atr_series),
+            "test": _rv.evaluate_variant(v, sigs_test, trd_test, atr_series),
+        }
+        if v.name == "V3":
+            _shadow_v3_time_split(
+                signals_df, trades_df, atr_series,
+                split_date=split_date,
+                window_start=window_start,
+                window_end=window_end,
+            )
 
     report = _write_report(per_variant, split_date)
     out_md = RESULTS_DIR / "time_split_report.md"
@@ -197,13 +253,14 @@ def _legacy_main(argv: list[str] | None = None) -> dict[str, Any]:
     log.info("Wrote %s", out_md)
     print()
     print(report)
-    metrics: dict[str, Any] = {"n_variants": int(len(per_variant))}
-    body_markdown = (
-        "See `tables/` for full outputs. Legacy artifacts mirrored from "
-        "`results/nfo/`.\n"
-    )
-    warnings: list[str] = []
-    return {"metrics": metrics, "body_markdown": body_markdown, "warnings": warnings}
+    return {
+        "metrics": {"n_variants": int(len(per_variant))},
+        "body_markdown": (
+            "See `tables/` for full outputs. Legacy artifacts mirrored from "
+            "`results/nfo/`.\n"
+        ),
+        "warnings": [],
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
