@@ -76,3 +76,40 @@ def test_cli_empty_runs_dir(tmp_path):
     assert result.returncode == 0
     assert (tmp_path / "index.md").exists()
     assert json.loads((tmp_path / "latest.json").read_text()) == {}
+
+
+def test_cli_also_writes_master_summary(tmp_path):
+    # Seed a run dir
+    from nfo.reporting.artifacts import open_run_directory
+    from nfo.specs.manifest import RunManifest
+    from datetime import date, datetime, timezone
+
+    runs_root = tmp_path / "runs"
+    rd = open_run_directory(root=runs_root, run_id="r-ms")
+    m = RunManifest(
+        run_id="r-ms", created_at=datetime(2026, 4, 22, tzinfo=timezone.utc),
+        code_version="abc",
+        study_spec_hash="x" * 64, strategy_spec_hash="s" * 64,
+        strategy_id="v3", strategy_version="3.0.0",
+        study_type="capital_analysis", selection_mode="cycle_matched",
+        dataset_hashes={},
+        window_start=date(2024, 2, 1), window_end=date(2026, 4, 18),
+        artifacts=[], status="ok", duration_seconds=1.0,
+    )
+    rd.write_manifest(m)
+    rd.write_metrics({"total_pnl_inr": 123.0})
+
+    import subprocess, os
+    env = os.environ.copy()
+    result = subprocess.run(
+        [".venv/bin/python", "-m", "nfo.reporting",
+         "--runs-root", str(runs_root),
+         "--out-root", str(tmp_path),
+         "--strategies-root", str(tmp_path / "strategies"),
+         "--datasets-root", str(tmp_path / "datasets")],
+        cwd=REPO_ROOT, capture_output=True, text=True, env=env,
+    )
+    assert result.returncode == 0, f"stderr: {result.stderr}"
+    assert (tmp_path / "master_summary.md").exists()
+    content = (tmp_path / "master_summary.md").read_text()
+    assert "r-ms" in content

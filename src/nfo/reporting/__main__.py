@@ -7,6 +7,7 @@ from pathlib import Path
 from nfo.config import RESULTS_DIR, ROOT
 from nfo.reporting.hash_sources import filesystem_hash_sources
 from nfo.reporting.index import generate_index
+from nfo.reporting.master_summary import generate_master_summary
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -30,6 +31,11 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  by_study={res.by_study}")
     print(f"Wrote {args.out_root / 'index.md'}")
     print(f"Wrote {args.out_root / 'latest.json'}")
+    ms = generate_master_summary(
+        runs_root=args.runs_root,
+        out_path=args.out_root / "master_summary.md",
+    )
+    print(f"Wrote {ms.out_path} (latest per study: {ms.latest_per_study})")
     return 0
 
 
