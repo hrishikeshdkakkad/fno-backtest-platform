@@ -37,27 +37,42 @@ Writes
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import logging
+import sys
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
 from nfo import calibrate
-from nfo.config import RESULTS_DIR
+from nfo.config import RESULTS_DIR, ROOT
 from nfo.robustness import (
     apply_slippage,
-    block_bootstrap,
     compute_equity_curves,
-    get_v3_matched_trades,
-    leave_one_out,
     load_trades_with_gaps,
 )
+from nfo.specs.loader import load_strategy
+from nfo.studies.robustness import RobustnessResult, run_robustness
 
 log = logging.getLogger("v3_robustness")
 
 SIGNALS_PATH = RESULTS_DIR / "historical_signals.parquet"
 VARIANTS = ("pt50", "hte")
+_HERE = Path(__file__).resolve().parent
+
+
+def _load_rv_module(alias: str = "_legacy_rv_robustness"):
+    """Import `scripts/nfo/redesign_variants.py` directly (scripts/ isn't a
+    package). Used for the legacy event-resolver + cached-parquet ATR loader.
+    """
+    spec = importlib.util.spec_from_file_location(
+        alias, _HERE / "redesign_variants.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[alias] = mod
+    spec.loader.exec_module(mod)
+    return mod
 
 
 def _format_inr(x: float) -> str:
@@ -127,72 +142,11 @@ def _slippage_break_even(df: pd.DataFrame, variant: str) -> float | None:
     return None
 
 
-# ── 2. Leave-one-out ─────────────────────────────────────────────────────────
-
-
-def run_loo(
-    matched_by_variant: dict[str, pd.DataFrame],
-    *,
-    capital: float,
-    years: float,
-) -> pd.DataFrame:
-    rows = []
-    for variant, trades in matched_by_variant.items():
-        for loo in leave_one_out(trades, capital=capital, years=years):
-            rows.append({
-                "variant": variant,
-                "dropped_index": loo.dropped_index,
-                "dropped_expiry": loo.dropped_expiry,
-                "dropped_outcome": loo.dropped_outcome,
-                "dropped_pnl_contract": loo.dropped_pnl_contract,
-                "remaining_n": loo.summary.n,
-                "remaining_win_rate": loo.summary.win_rate,
-                "remaining_avg_pnl": loo.summary.avg_pnl_contract,
-                # Capital-aware Sharpe (monthly annualisation) is the headline;
-                # per-lot Sharpe stays in the CSV for audit.
-                "remaining_sharpe": loo.equity_sharpe,
-                "remaining_sharpe_per_lot": loo.summary.sharpe,
-                "total_pnl_fixed": loo.total_pnl_fixed,
-                "total_pnl_compound": loo.total_pnl_compound,
-                "final_equity_compound": loo.final_equity_compound,
-                "max_drawdown_pct": loo.max_drawdown_pct,
-            })
-    return pd.DataFrame(rows)
-
-
-# ── 3. Block bootstrap ───────────────────────────────────────────────────────
-
-
-def run_bootstrap(
-    matched_by_variant: dict[str, pd.DataFrame],
-    *,
-    capital: float,
-    years: float,
-    n_iter: int,
-    seed: int,
-) -> tuple[pd.DataFrame, dict[str, object]]:
-    """Return percentile table per variant + raw summary stats dict.
-
-    Both fixed (non-compounding) and compound (final equity > capital)
-    probabilities are returned. The compound probability is what the
-    report should cite in compounding-framed sections — a draw can have
-    total_pnl_fixed > 0 while the compound path still finishes below the
-    starting account balance (paths that lost money late after building
-    up lots get amplified downside).
-    """
-    rows = []
-    raw: dict[str, object] = {}
-    for variant, trades in matched_by_variant.items():
-        result = block_bootstrap(
-            trades, capital=capital, years=years, n_iter=n_iter, seed=seed,
-        )
-        raw[variant] = result
-        pct = result.percentiles()
-        pct.insert(0, "variant", variant)
-        rows.append(pct)
-        raw[f"{variant}_prob_positive_fixed"] = result.prob_positive_fixed()
-        raw[f"{variant}_prob_positive_compound"] = result.prob_positive_compound()
-    return pd.concat(rows, ignore_index=True), raw
+# ── 2. Leave-one-out and 3. Block bootstrap ─────────────────────────────────
+# The legacy `run_loo` + `run_bootstrap` helpers were moved inside
+# `nfo.studies.robustness.run_robustness` in P5-D1. The script-local
+# `_loo_rows_to_df` + `_bootstrap_to_long_df` (defined below) now handle the
+# multi-variant legacy CSV shaping from the engine's per-variant results.
 
 
 # ── Report rendering ─────────────────────────────────────────────────────────
@@ -389,7 +343,50 @@ def render_report(
 # ── CLI ──────────────────────────────────────────────────────────────────────
 
 
+def _loo_rows_to_df(results: dict[str, RobustnessResult]) -> pd.DataFrame:
+    """Project per-variant LooRow lists into the legacy long-form CSV schema."""
+    rows: list[dict[str, Any]] = []
+    for variant, result in results.items():
+        for loo in result.leave_one_out:
+            rows.append({
+                "variant": variant,
+                "dropped_index": loo.dropped_index,
+                "dropped_expiry": loo.dropped_expiry,
+                "dropped_outcome": loo.dropped_outcome,
+                "dropped_pnl_contract": loo.dropped_pnl_contract,
+                "remaining_n": loo.summary.n,
+                "remaining_win_rate": loo.summary.win_rate,
+                "remaining_avg_pnl": loo.summary.avg_pnl_contract,
+                "remaining_sharpe": loo.equity_sharpe,
+                "remaining_sharpe_per_lot": loo.summary.sharpe,
+                "total_pnl_fixed": loo.total_pnl_fixed,
+                "total_pnl_compound": loo.total_pnl_compound,
+                "final_equity_compound": loo.final_equity_compound,
+                "max_drawdown_pct": loo.max_drawdown_pct,
+            })
+    return pd.DataFrame(rows)
+
+
+def _bootstrap_to_long_df(results: dict[str, RobustnessResult]) -> pd.DataFrame:
+    """Stack per-variant bootstrap percentile frames into the legacy long schema."""
+    frames: list[pd.DataFrame] = []
+    for variant, result in results.items():
+        pct = result.bootstrap.percentiles()
+        pct.insert(0, "variant", variant)
+        frames.append(pct)
+    if not frames:
+        return pd.DataFrame()
+    return pd.concat(frames, ignore_index=True)
+
+
 def _legacy_main(argv: list[str] | None = None) -> dict[str, Any]:
+    """P5-D2: thin wrapper over `nfo.studies.robustness.run_robustness`.
+
+    Loads the v3_frozen spec, signals, trades, ATR; runs the engine study
+    once per pt-variant; shapes the per-variant RobustnessResult objects
+    into the 4 legacy artifacts (slippage CSV, LOO CSV, bootstrap CSV,
+    markdown report); returns the `wrap_legacy_run` contract dict.
+    """
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -403,32 +400,51 @@ def _legacy_main(argv: list[str] | None = None) -> dict[str, Any]:
                     help="RNG seed for bootstrap reproducibility.")
     ap.add_argument("--output-dir", type=Path, default=RESULTS_DIR)
     args = ap.parse_args(argv)
-
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 
     slippage_grid = [float(x) for x in args.slippage_grid.split(",") if x.strip()]
 
+    spec, _ = load_strategy(ROOT / "configs" / "nfo" / "strategies" / "v3_frozen.yaml")
     signals_df = pd.read_parquet(SIGNALS_PATH)
     signals_df["date"] = pd.to_datetime(signals_df["date"])
     trades = load_trades_with_gaps()
 
-    start = signals_df["date"].min().date()
-    end = signals_df["date"].max().date()
-    years = (end - start).days / 365.25
+    rv = _load_rv_module()
+    atr = rv.load_nifty_atr(signals_df["date"])
 
-    matched_by_variant: dict[str, pd.DataFrame] = {}
+    def _event_resolver(entry, dte):
+        return "high" if not rv._event_pass(
+            entry, dte, severity_high_kinds={"RBI", "FOMC", "BUDGET"},
+            window_days=10,
+        ) else "none"
+
+    # Run the engine study once per pt-variant.
+    results: dict[str, RobustnessResult] = {}
     for variant in VARIANTS:
-        matched = get_v3_matched_trades(signals_df, trades, variant)
-        log.info("Matched %d trades for variant %s", len(matched), variant)
-        if matched.empty:
+        result = run_robustness(
+            spec=spec, features_df=signals_df, atr_series=atr,
+            trades_df=trades, pt_variant=variant,
+            capital_inr=args.capital,
+            bootstrap_iterations=args.bootstrap_iterations,
+            seed=args.seed,
+            slippage_sweep_rupees=slippage_grid,
+            event_resolver=_event_resolver,
+        )
+        log.info("Matched %d trades for variant %s", len(result.matched_trades), variant)
+        if result.matched_trades.empty:
             log.error("No V3-matched trades found for %s — cannot continue.", variant)
             return {
                 "metrics": {},
                 "body_markdown": "",
                 "warnings": [f"No V3-matched trades for variant {variant}"],
             }
-        matched_by_variant[variant] = matched
+        results[variant] = result
 
+    # Build the legacy multi-variant slippage CSV via the existing helper
+    # (wide schema: `pt50_*` + `hte_*` columns, one row per slippage level).
+    matched_by_variant = {v: r.matched_trades for v, r in results.items()}
+    # Use the first result's years for annualisation parity across variants.
+    years = next(iter(results.values())).years
     slippage_df = run_slippage_sweep(
         matched_by_variant, slippage_grid=slippage_grid,
         capital=args.capital, years=years,
@@ -436,18 +452,15 @@ def _legacy_main(argv: list[str] | None = None) -> dict[str, Any]:
     break_even = {v: _slippage_break_even(slippage_df, v) for v in VARIANTS}
     log.info("Slippage sweep done (%d rows).", len(slippage_df))
 
-    loo_df = run_loo(matched_by_variant, capital=args.capital, years=years)
+    loo_df = _loo_rows_to_df(results)
     log.info("Leave-one-out done (%d rows).", len(loo_df))
 
-    bootstrap_pct, bootstrap_raw = run_bootstrap(
-        matched_by_variant, capital=args.capital, years=years,
-        n_iter=args.bootstrap_iterations, seed=args.seed,
-    )
+    bootstrap_pct = _bootstrap_to_long_df(results)
     prob_positive_fixed = {
-        v: float(bootstrap_raw[f"{v}_prob_positive_fixed"]) for v in VARIANTS
+        v: float(r.bootstrap.prob_positive_fixed()) for v, r in results.items()
     }
     prob_positive_compound = {
-        v: float(bootstrap_raw[f"{v}_prob_positive_compound"]) for v in VARIANTS
+        v: float(r.bootstrap.prob_positive_compound()) for v, r in results.items()
     }
     log.info("Bootstrap done (%d iterations per variant).", args.bootstrap_iterations)
 
@@ -471,20 +484,22 @@ def _legacy_main(argv: list[str] | None = None) -> dict[str, Any]:
     log.info("Wrote robustness_report.md + 3 CSVs to %s", out_dir)
     print()
     print(report)
-    metrics: dict[str, Any] = {}
-    for variant in VARIANTS:
-        metrics[f"{variant}_prob_positive_compound"] = prob_positive_compound.get(variant)
-    body_markdown = (
-        "See `tables/` for full outputs. Legacy artifacts mirrored from "
-        "`results/nfo/`.\n"
-    )
-    warnings: list[str] = []
-    return {"metrics": metrics, "body_markdown": body_markdown, "warnings": warnings}
+    metrics: dict[str, Any] = {
+        f"{v}_prob_positive_compound": prob_positive_compound.get(v)
+        for v in VARIANTS
+    }
+    return {
+        "metrics": metrics,
+        "body_markdown": (
+            "See `tables/` for full outputs. Legacy artifacts mirrored from "
+            "`results/nfo/`.\n"
+        ),
+        "warnings": [],
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
     from datetime import date
-    from nfo.config import RESULTS_DIR, ROOT
     from nfo.reporting.wrap_legacy_run import wrap_legacy_run
 
     def run_logic() -> dict:
