@@ -9,7 +9,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from nfo.engine.cycles import CycleFires, group_fires_by_cycle
+from nfo.engine.cycles import group_fires_by_cycle
 from nfo.engine.triggers import TriggerEvaluator
 from nfo.specs.loader import load_strategy, reset_registry_for_tests
 
@@ -65,15 +65,6 @@ def test_group_fires_by_cycle_empty():
     assert cycles == {}
 
 
-def _import_legacy_v3_cycles():
-    path = REPO_ROOT / "scripts" / "nfo" / "v3_live_rule_backtest.py"
-    spec = importlib.util.spec_from_file_location("_legacy_v3lrb", path)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules["_legacy_v3lrb"] = mod
-    spec.loader.exec_module(mod)
-    return mod._v3_cycles
-
-
 def _import_legacy_redesign_variants():
     path = REPO_ROOT / "scripts" / "nfo" / "redesign_variants.py"
     spec = importlib.util.spec_from_file_location("_legacy_rv_cycles", path)
@@ -81,6 +72,36 @@ def _import_legacy_redesign_variants():
     sys.modules["_legacy_rv_cycles"] = mod
     spec.loader.exec_module(mod)
     return mod
+
+
+def _legacy_v3_cycles(
+    signals_df: pd.DataFrame,
+    rv_mod,
+) -> list[tuple[date, date]]:
+    """Reproduction of the removed `v3_live_rule_backtest._v3_cycles` helper.
+
+    Kept inline here so the engine parity test no longer depends on a script
+    helper that P5-A1 deleted. Takes the redesign_variants module so it can
+    reuse the V3 variant + ATR loader.
+    """
+    v3 = next(v for v in rv_mod.make_variants() if v.name == "V3")
+    atr_series = rv_mod.load_nifty_atr(signals_df["date"])
+    fires = rv_mod.get_firing_dates(v3, signals_df, atr_series)
+
+    by_expiry: dict[str, list[pd.Timestamp]] = {}
+    for fire_date, _ in fires:
+        row = signals_df[signals_df["date"].dt.date == fire_date]
+        if row.empty:
+            continue
+        exp_str = str(row["target_expiry"].iloc[0])
+        if not exp_str:
+            continue
+        by_expiry.setdefault(exp_str, []).append(pd.Timestamp(fire_date))
+    out: list[tuple[date, date]] = []
+    for exp_str in sorted(by_expiry):
+        first_fire = min(by_expiry[exp_str]).date()
+        out.append((first_fire, date.fromisoformat(exp_str)))
+    return out
 
 
 @pytest.fixture
@@ -111,10 +132,9 @@ def test_group_fires_parity_v3(_iso_registry):
         engine_fires, df, underlying="NIFTY", strategy_version=spec.strategy_version,
     )
 
-    # Legacy path: _v3_cycles
-    legacy_v3_cycles_fn = _import_legacy_v3_cycles()
-    # _v3_cycles returns [(first_fire_date, target_expiry_date), ...]
-    legacy_list = legacy_v3_cycles_fn(df)
+    # Reference path: inlined _v3_cycles logic (previously lived in
+    # v3_live_rule_backtest.py — removed by P5-A1).
+    legacy_list = _legacy_v3_cycles(df, rv)
     legacy_pairs = {(f, e) for f, e in legacy_list}
 
     engine_pairs = {

@@ -1,0 +1,46 @@
+strategy_id: v3
+strategy_version: 3.0.2
+description: >
+  V3 credit spread — live-rule variant with pt50 exit. Same trigger/universe
+  as v3_live_rule (3.0.1), different exit: profit_take=0.5, manage_at_dte=21.
+universe:
+  underlyings: [NIFTY]
+  delta_target: 0.30
+  delta_tolerance: 0.05
+  width_rule: fixed
+  width_value: 100.0
+  dte_target: 35
+  dte_tolerance: 3
+  allowed_contract_families: [PE]
+feature_set: [vix_abs, vix_pct_3mo, iv_rank, iv_minus_rv, trend_score, event_risk_v3]
+trigger_rule:
+  score_gates: {min_score: 4}
+  specific_pass_gates: [s3_iv_rv, s6_trend, s8_events]
+  event_window_days: 10
+  feature_thresholds:
+    iv_minus_rv_min_vp: -2.0
+    trend_score_min: 2.0
+    vix_abs_min: 20.0
+    vix_pct_3mo_min: 0.80
+    iv_rank_min: 0.60
+  missing_data_policy: skip_day
+selection_rule:
+  mode: live_rule
+  one_trade_per_cycle: true
+  preferred_exit_variant: pt50
+  canonical_trade_chooser: first_fire
+  width_handling: strict_fixed
+entry_rule:
+  earliest_entry_relative_to_first_fire: 0
+  session_snap_rule: forward_only
+  entry_timestamp_convention: session_close
+  allow_pre_fire_entry: false
+exit_rule:
+  variant: pt50
+  profit_take_fraction: 0.50
+  manage_at_dte: 21
+  expiry_settlement: cash_settled_to_spot
+capital_rule:
+  fixed_capital_inr: 1000000
+slippage_rule:
+  flat_rupees_per_lot: 0.0
