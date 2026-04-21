@@ -288,7 +288,7 @@ class EntrySpec(BaseModel):
 class ExitSpec(BaseModel):
     variant: Literal["pt25", "pt50", "pt75", "hte", "dte2"]
     profit_take_fraction: float | None           # derived from variant, validated for consistency
-    manage_at_dte: conint(ge=0, le=14) | None    # None means hold-to-expiry
+    manage_at_dte: Annotated[int, Field(ge=0, le=60)] | None   # None means HTE; 21 is standard pt50 management
     expiry_settlement: Literal["cash_settled_to_spot", "held_to_expiry_intrinsic"] = "cash_settled_to_spot"
 
 class CapitalSpec(BaseModel):
