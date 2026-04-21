@@ -34,6 +34,13 @@ import pandas as pd
 
 from .calibrate import SummaryStats, summary_stats
 from .config import RESULTS_DIR
+# Re-export EquityResult from engine.capital so `robustness.EquityResult` is
+# the same class object (not a duplicate). The engine implementation is the
+# source of truth; robustness.compute_equity_curves is a thin shim over it.
+from nfo.engine.capital import (  # noqa: E402
+    EquityResult,
+    compute_equity_curves as _engine_compute_equity_curves,
+)
 
 
 # ── Shared defaults ─────────────────────────────────────────────────────────
@@ -151,51 +158,12 @@ def get_v3_matched_trades(
 
 
 # ── Equity curves ───────────────────────────────────────────────────────────
-
-
-@dataclass(slots=True)
-class EquityResult:
-    """Result of deploying a series of trades against a fixed capital base.
-
-    Attributes
-    ----------
-    pnl_fixed : pd.Series
-        Per-trade P&L under non-compounding (always deploy `capital`).
-    pnl_compound : pd.Series
-        Per-trade P&L under compounding (deploy current equity).
-    equity_compound : pd.Series
-        Running equity after each compounding trade.
-    lots_fixed : pd.Series
-        Lots deployed per trade under non-compounding.
-    lots_compound : pd.Series
-        Lots deployed per trade under compounding.
-    total_pnl_fixed : float
-    total_pnl_compound : float
-    final_equity_compound : float
-    max_drawdown_pct : float
-        Peak-to-trough percentage drop in compounding equity.
-    annualised_pct_fixed : float
-    annualised_pct_compound : float
-        CAGR of compounding equity over the window.
-    sharpe : float
-        Per-trade Sharpe of non-compounding return-on-capital, annualised
-        by √(trades/year) to match the convention used by
-        `v3_capital_analysis`.
-    years : float
-    """
-    pnl_fixed: pd.Series
-    pnl_compound: pd.Series
-    equity_compound: pd.Series
-    lots_fixed: pd.Series
-    lots_compound: pd.Series
-    total_pnl_fixed: float
-    total_pnl_compound: float
-    final_equity_compound: float
-    max_drawdown_pct: float
-    annualised_pct_fixed: float
-    annualised_pct_compound: float
-    sharpe: float
-    years: float
+#
+# `EquityResult` and the core computation now live in `nfo.engine.capital`.
+# The function below is a thin shim that translates the legacy kwargs
+# (`capital`, `deployment_frac`) into a `CapitalSpec` and forwards the call.
+# This keeps every existing caller in `scripts/nfo/*` and the tests under
+# `tests/nfo/test_robustness.py` working unchanged.
 
 
 def compute_equity_curves(
@@ -205,105 +173,27 @@ def compute_equity_curves(
     years: float | None = None,
     deployment_frac: float = 1.0,
 ) -> EquityResult:
-    """Walk `trades` in row order, deploying capital per the two standard rules.
+    """Shim over `nfo.engine.capital.compute_equity_curves`.
 
-    Expected columns: `buying_power` (₹ per lot) and `pnl_contract` (₹ per
-    lot, net of costs). Row order is the trade sequence.
+    Accepts the legacy kwargs (`capital`, `years`, `deployment_frac`) and
+    forwards to the engine with a `CapitalSpec`. Behaviour is identical to
+    the pre-refactor implementation; see `nfo.engine.capital` for the
+    canonical docstring.
 
-    `years` is used for annualisation and Sharpe scaling; if omitted, the
-    caller can pass 0 (annualisation becomes 0) or supply a value from the
-    backtest window. `v3_capital_analysis` derives it from the signals-
-    parquet span.
-
-    `deployment_frac` controls how much of each account balance is put to
-    work on each cycle — 1.0 (the default) matches the current
-    `v3_capital_analysis` behaviour, 0.1 models a 10 %-of-equity allocation
-    with the remainder held as reserve. Applied to BOTH the non-compounding
-    budget (fraction of the fixed `capital`) and the compounding budget
-    (fraction of current equity).
+    Raises
+    ------
+    ValueError
+        If `deployment_frac` is outside `(0.0, 1.0]`.
     """
     if not 0.0 < deployment_frac <= 1.0:
         raise ValueError("deployment_frac must be in (0.0, 1.0]")
-    if trades.empty:
-        empty = pd.Series(dtype=float)
-        return EquityResult(
-            pnl_fixed=empty, pnl_compound=empty, equity_compound=empty,
-            lots_fixed=pd.Series(dtype=int), lots_compound=pd.Series(dtype=int),
-            total_pnl_fixed=0.0, total_pnl_compound=0.0,
-            final_equity_compound=capital, max_drawdown_pct=0.0,
-            annualised_pct_fixed=0.0, annualised_pct_compound=0.0,
-            sharpe=0.0, years=years or 0.0,
-        )
-
-    pnl_fixed_vals: list[float] = []
-    pnl_compound_vals: list[float] = []
-    equity_compound_vals: list[float] = []
-    lots_fixed_vals: list[int] = []
-    lots_compound_vals: list[int] = []
-
-    equity = float(capital)
-    peak = equity
-    max_dd = 0.0
-
-    for _, t in trades.iterrows():
-        bp_per_lot = float(t["buying_power"])
-        pnl_per_lot = float(t["pnl_contract"])
-
-        fixed_budget = capital * deployment_frac
-        compound_budget = equity * deployment_frac
-        # You cannot take a negative position just because the account is
-        # underwater. Clamp both sizings at zero — the cycle is skipped when
-        # there's no capital to deploy, which is what a real broker would
-        # enforce via the buying-power check.
-        lots_fx = max(0, int(fixed_budget // bp_per_lot)) if bp_per_lot > 0 else 0
-        pnl_fx = lots_fx * pnl_per_lot
-        lots_cp = max(0, int(compound_budget // bp_per_lot)) if bp_per_lot > 0 else 0
-        pnl_cp = lots_cp * pnl_per_lot
-        equity += pnl_cp
-        peak = max(peak, equity)
-        if peak > 0:
-            # Clamp at 1.0 so "bankruptcy" registers as 100 % drawdown rather
-            # than an artificial >100 % when the account goes negative.
-            dd = min(1.0, max(0.0, (peak - equity) / peak))
-            max_dd = max(max_dd, dd)
-
-        pnl_fixed_vals.append(pnl_fx)
-        pnl_compound_vals.append(pnl_cp)
-        equity_compound_vals.append(equity)
-        lots_fixed_vals.append(lots_fx)
-        lots_compound_vals.append(lots_cp)
-
-    pnl_fixed = pd.Series(pnl_fixed_vals)
-    pnl_compound = pd.Series(pnl_compound_vals)
-    equity_series = pd.Series(equity_compound_vals)
-
-    total_fx = float(pnl_fixed.sum())
-    total_cp = equity - capital
-    yrs = years if years is not None and years > 0 else 0.0
-    ann_fx = (total_fx / capital) / yrs * 100 if yrs > 0 else 0.0
-    ann_cp = ((equity / capital) ** (1 / yrs) - 1) * 100 if yrs > 0 and capital > 0 else 0.0
-
-    if len(pnl_fixed) > 1 and pnl_fixed.std(ddof=1) > 0 and yrs > 0:
-        rets = pnl_fixed / capital
-        sharpe = float(rets.mean() / rets.std(ddof=1) * math.sqrt(len(pnl_fixed) / yrs))
-    else:
-        sharpe = 0.0
-
-    return EquityResult(
-        pnl_fixed=pnl_fixed,
-        pnl_compound=pnl_compound,
-        equity_compound=equity_series,
-        lots_fixed=pd.Series(lots_fixed_vals),
-        lots_compound=pd.Series(lots_compound_vals),
-        total_pnl_fixed=total_fx,
-        total_pnl_compound=total_cp,
-        final_equity_compound=equity,
-        max_drawdown_pct=max_dd * 100,
-        annualised_pct_fixed=ann_fx,
-        annualised_pct_compound=ann_cp,
-        sharpe=sharpe,
-        years=yrs,
+    from nfo.specs.strategy import CapitalSpec
+    spec = CapitalSpec(
+        fixed_capital_inr=capital,
+        deployment_fraction=deployment_frac,
+        compounding=False,  # engine always emits both curves; flag is advisory.
     )
+    return _engine_compute_equity_curves(trades, capital_spec=spec, years=years or 0.0)
 
 
 # ── Slippage sweep ──────────────────────────────────────────────────────────
