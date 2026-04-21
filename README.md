@@ -1,16 +1,23 @@
-# CSP Income Backtester
+# NFO Research Platform
 
-A cash-secured-put backtester for a $41k portfolio targeting $500/month in
-option premium, powered by Massive.com (ex-Polygon.io) historical daily bars.
+Spec-driven research platform for Indian NIFTY / BANKNIFTY F&O credit-spread
+strategies. Backed by Dhan v2 for historical and live data.
 
-## Why this exists
+## What this is
 
-Running CSPs as an income strategy sounds simple — sell OTM puts, collect
-premium, either keep the cash or get assigned a stock you wanted anyway.
-In practice there are a dozen knobs: which underlyings, what delta, what
-DTE, when (if ever) to close early, what to do on assignment. This repo
-turns those knobs into numbers so the live playbook is grounded in
-out-of-sample history, not vibes.
+A single system that answers three distinct research questions for the same
+strategy spec:
+
+- **day_matched** — "Are trades entered on signal days generally good?"
+- **cycle_matched** — "If I force one canonical trade per cycle, how does that
+  trade family behave?"
+- **live_rule** — "What would a literal live system have done using only the
+  information available on that date?"
+
+Every study runs from a validated `StrategySpec` (YAML) and writes a
+manifest-backed run directory under `results/nfo/runs/<run_id>/`. Live regime
+monitoring consumes the same trigger engine as historical replay, so live and
+research cannot silently disagree about the same strategy.
 
 ## Quick start
 
@@ -18,43 +25,37 @@ out-of-sample history, not vibes.
 python3 -m venv .venv
 .venv/bin/pip install -e .
 
-cp .env.example .env            # add your Massive API key
-.venv/bin/python scripts/run_grid.py   # ~60-90 min on Basic tier
-.venv/bin/python scripts/build_plan.py
-open results/plan.md
+cp .env.example .env            # add DHAN_CLIENT_ID, DHAN_ACCESS_TOKEN, PARALLEL_API_KEY
+.venv/bin/python -m pytest tests/nfo/ -q
 ```
 
-## What lives where
+## Layout
 
 | Path | Purpose |
 |---|---|
-| `src/csp/client.py` | Rate-limited HTTP client for the Massive REST API |
-| `src/csp/cache.py` | Parquet-backed cache of stock/option bars |
-| `src/csp/bsm.py` | Black-Scholes pricing + implied-vol / delta |
-| `src/csp/universe.py` | Monthly expirations + OCC ticker construction |
-| `src/csp/strategy.py` | Analytical target-strike picker |
-| `src/csp/backtest.py` | Monthly-roll CSP simulator with profit-take / stop / manage rules |
-| `src/csp/portfolio.py` | Capital allocation across multiple per-contract strategies |
-| `scripts/run_grid.py` | Runs the full parameter grid and writes `results/summary.csv` |
-| `scripts/build_plan.py` | Reads the summary, picks the best allocation, writes `results/plan.md` |
-| `scripts/quick_iwm.py` | 6-month sanity check on IWM alone |
+| `src/nfo/specs/` | Pydantic models: StrategySpec, StudySpec, RunManifest, DatasetManifest |
+| `src/nfo/engine/` | Triggers, cycles, selection, entry, exits, execution, capital, metrics |
+| `src/nfo/studies/` | Variant comparison, time split, capital analysis, robustness, falsification, live replay |
+| `src/nfo/monitor/` | Live regime snapshots, state machine, research parity |
+| `src/nfo/reporting/` | Run directory writer, methodology header, top-level index |
+| `src/nfo/datasets/` | Stage pipeline: raw → normalized → features → trade_universe → study_inputs |
+| `configs/nfo/strategies/` | Strategy YAMLs (e.g. v3_frozen.yaml) |
+| `configs/nfo/studies/` | Study YAMLs |
+| `scripts/nfo/` | Thin CLI wrappers (business logic lives in `src/nfo/`) |
+| `results/nfo/runs/` | Canonical run outputs |
+| `results/nfo/index.md` | Generated index of all runs |
+| `data/nfo/` | Cached raw data, dataset parquets, monitor snapshots |
+| `legacy/` | Archived CSP backtester (predecessor project) |
+| `docs/superpowers/specs/` | Master platform design |
+| `docs/superpowers/plans/` | Phase-level implementation plans |
 
-## Tier notes (Massive.com Basic = 5 calls/min)
+## Status
 
-- Daily option bars are available back to ~2 years.
-- NBBO quotes are **not** available — fills use daily close with symmetric
-  slippage (default 2%).
-- Historical greeks are **not** available — we compute delta/IV from the
-  put's close price via Black-Scholes each day.
-- Option tickers are constructed deterministically
-  (`O:<UND><YYMMDD><C|P><strike*1000:08d>`); invalid strikes return empty
-  bars rather than 404, which lets us skip chain-reference calls entirely
-  for major ETFs with $1 strike increments.
+Phase 1 (Foundation & Contracts) — in progress. See
+`docs/superpowers/plans/2026-04-21-nfo-platform-phase1-plan.md`.
 
-## Strategy defaults (override in `scripts/run_grid.py`)
+## Prior CSP work
 
-- Target delta 0.20–0.30
-- Target DTE 35 (enter 35 calendar days before 3rd-Friday monthly expiry)
-- Profit take at 50%
-- Manage (close) at 21 DTE if still open
-- Slippage 2% of option close, applied to both entry and exit
+The original cash-secured-put backtester for US equities (Massive.com data) is
+archived under `legacy/csp/` with its own quick-start. It is not part of the
+NFO platform.
