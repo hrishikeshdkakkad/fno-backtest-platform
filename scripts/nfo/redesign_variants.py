@@ -30,7 +30,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 import numpy as np
 import pandas as pd
@@ -433,15 +433,23 @@ def _write_report(results: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def main() -> int:
+def _legacy_main() -> dict[str, Any]:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
     if not SIGNALS_PATH.exists():
         log.error("Missing %s — run historical_backtest.py first.", SIGNALS_PATH)
-        return 1
+        return {
+            "metrics": {},
+            "body_markdown": "",
+            "warnings": [f"Missing {SIGNALS_PATH.name}"],
+        }
     if not TRADES_PATH.exists():
         log.error("Missing %s — run backtest grid first.", TRADES_PATH)
-        return 1
+        return {
+            "metrics": {},
+            "body_markdown": "",
+            "warnings": [f"Missing {TRADES_PATH.name}"],
+        }
 
     signals_df = pd.read_parquet(SIGNALS_PATH)
     signals_df["date"] = pd.to_datetime(signals_df["date"])
@@ -478,6 +486,40 @@ def main() -> int:
     log.info("Wrote %s and %s", OUT_CSV, OUT_MD)
     print()
     print(report)
+    metrics: dict[str, Any] = {
+        "n_variants": int(len(results)),
+        "winner": winner["variant"] if winner else None,
+    }
+    body_markdown = (
+        "See `tables/` for full outputs. Legacy artifacts mirrored from "
+        "`results/nfo/`.\n"
+    )
+    warnings: list[str] = []
+    return {"metrics": metrics, "body_markdown": body_markdown, "warnings": warnings}
+
+
+def main(argv: list[str] | None = None) -> int:
+    from datetime import date
+    from nfo.config import RESULTS_DIR, ROOT
+    from nfo.reporting.wrap_legacy_run import wrap_legacy_run
+
+    def run_logic() -> dict:
+        return _legacy_main()
+
+    result = wrap_legacy_run(
+        study_type="variant_comparison",
+        strategy_path=ROOT / "configs" / "nfo" / "strategies" / "v3_frozen.yaml",
+        study_path=ROOT / "configs" / "nfo" / "studies" / "variant_comparison_default.yaml",
+        legacy_artifacts=[
+            RESULTS_DIR / "redesign_comparison.csv",
+            RESULTS_DIR / "redesign_comparison.md",
+            RESULTS_DIR / "redesign_winner.json",
+        ],
+        window=(date(2024, 2, 1), date(2026, 4, 18)),
+        run_logic=run_logic,
+        runs_root=RESULTS_DIR / "runs",
+    )
+    print(result.run_dir.path)
     return 0
 
 
