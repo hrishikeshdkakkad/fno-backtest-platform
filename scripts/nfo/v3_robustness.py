@@ -39,6 +39,7 @@ from __future__ import annotations
 import argparse
 import logging
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
@@ -388,7 +389,7 @@ def render_report(
 # ── CLI ──────────────────────────────────────────────────────────────────────
 
 
-def main(argv: list[str] | None = None) -> int:
+def _legacy_main(argv: list[str] | None = None) -> dict[str, Any]:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -421,7 +422,11 @@ def main(argv: list[str] | None = None) -> int:
         log.info("Matched %d trades for variant %s", len(matched), variant)
         if matched.empty:
             log.error("No V3-matched trades found for %s — cannot continue.", variant)
-            return 1
+            return {
+                "metrics": {},
+                "body_markdown": "",
+                "warnings": [f"No V3-matched trades for variant {variant}"],
+            }
         matched_by_variant[variant] = matched
 
     slippage_df = run_slippage_sweep(
@@ -466,6 +471,40 @@ def main(argv: list[str] | None = None) -> int:
     log.info("Wrote robustness_report.md + 3 CSVs to %s", out_dir)
     print()
     print(report)
+    metrics: dict[str, Any] = {}
+    for variant in VARIANTS:
+        metrics[f"{variant}_prob_positive_compound"] = prob_positive_compound.get(variant)
+    body_markdown = (
+        "See `tables/` for full outputs. Legacy artifacts mirrored from "
+        "`results/nfo/`.\n"
+    )
+    warnings: list[str] = []
+    return {"metrics": metrics, "body_markdown": body_markdown, "warnings": warnings}
+
+
+def main(argv: list[str] | None = None) -> int:
+    from datetime import date
+    from nfo.config import RESULTS_DIR, ROOT
+    from nfo.reporting.wrap_legacy_run import wrap_legacy_run
+
+    def run_logic() -> dict:
+        return _legacy_main(argv)
+
+    result = wrap_legacy_run(
+        study_type="robustness",
+        strategy_path=ROOT / "configs" / "nfo" / "strategies" / "v3_frozen.yaml",
+        study_path=ROOT / "configs" / "nfo" / "studies" / "robustness_default.yaml",
+        legacy_artifacts=[
+            RESULTS_DIR / "robustness_slippage.csv",
+            RESULTS_DIR / "robustness_loo.csv",
+            RESULTS_DIR / "robustness_bootstrap.csv",
+            RESULTS_DIR / "robustness_report.md",
+        ],
+        window=(date(2024, 2, 1), date(2026, 4, 18)),
+        run_logic=run_logic,
+        runs_root=RESULTS_DIR / "runs",
+    )
+    print(result.run_dir.path)
     return 0
 
 
