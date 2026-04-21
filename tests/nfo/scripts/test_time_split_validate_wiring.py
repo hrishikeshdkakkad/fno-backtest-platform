@@ -59,3 +59,70 @@ def test_time_split_validate_calls_wrap_legacy_run(monkeypatch, tmp_path):
         "historical_features_2024-01_2026-04",
         "trade_universe_nifty_2024-01_2026-04",
     }
+
+
+def test_non_canonical_args_skip_run_emission(monkeypatch, tmp_path, caplog):
+    """Non-default --split-date or --variants must NOT emit a run dir.
+
+    The canonical run is defined by configs/nfo/studies/time_split_default.yaml;
+    CLI overrides break that provenance, so main() refuses to wrap and only
+    refreshes the top-level legacy report.
+    """
+    import logging
+
+    wrap_calls: list[dict] = []
+
+    def fake_wrap(**kwargs):
+        wrap_calls.append(kwargs)
+
+        class _R:
+            class run_dir:
+                path = tmp_path / "runs" / "nope"
+
+        return _R
+
+    monkeypatch.setattr(
+        "nfo.reporting.wrap_legacy_run.wrap_legacy_run", fake_wrap, raising=True
+    )
+    mod = _load_script_module("time_split_validate")
+
+    legacy_calls: list = []
+
+    def _fake_legacy(argv=None):
+        legacy_calls.append(argv)
+        return {"metrics": {}, "body_markdown": "", "warnings": []}
+
+    monkeypatch.setattr(mod, "_legacy_main", _fake_legacy, raising=False)
+
+    with caplog.at_level(logging.WARNING, logger="time_split_validate"):
+        ret = mod.main(["--split-date", "2025-06-01"])
+    assert ret == 0
+    assert wrap_calls == [], "non-canonical args must not trigger wrap_legacy_run"
+    assert legacy_calls == [["--split-date", "2025-06-01"]]
+    assert any("Non-canonical" in rec.message for rec in caplog.records)
+
+
+def test_non_canonical_variants_also_skip(monkeypatch, tmp_path):
+    wrap_calls: list[dict] = []
+
+    def fake_wrap(**kwargs):
+        wrap_calls.append(kwargs)
+
+        class _R:
+            class run_dir:
+                path = tmp_path / "runs" / "nope"
+
+        return _R
+
+    monkeypatch.setattr(
+        "nfo.reporting.wrap_legacy_run.wrap_legacy_run", fake_wrap, raising=True
+    )
+    mod = _load_script_module("time_split_validate")
+    monkeypatch.setattr(
+        mod, "_legacy_main",
+        lambda argv=None: {"metrics": {}, "body_markdown": "", "warnings": []},
+        raising=False,
+    )
+    ret = mod.main(["--variants", "V4"])
+    assert ret == 0
+    assert wrap_calls == []

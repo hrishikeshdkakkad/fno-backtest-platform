@@ -321,17 +321,47 @@ def main(argv: list[str] | None = None) -> int:
     from nfo.config import RESULTS_DIR, ROOT
     from nfo.reporting.wrap_legacy_run import wrap_legacy_run
 
+    # Canonical arguments encoded in configs/nfo/studies/time_split_default.yaml.
+    # `--split-date 2025-01-01` corresponds to the YAML's test_window[0] (train
+    # ends 2024-12-31 inclusive, test begins 2025-01-01). `--variants V3,V4,V5,V6`
+    # is the legacy multi-variant shadow set; V3 is the canonical engine variant
+    # but V4-V6 still run so the top-level time_split_report.md stays complete.
+    _CANONICAL_SPLIT_DATE = "2025-01-01"
+    _CANONICAL_VARIANTS = "V3,V4,V5,V6"
+
+    pre = argparse.ArgumentParser(add_help=False)
+    pre.add_argument("--split-date", default=_CANONICAL_SPLIT_DATE)
+    pre.add_argument("--variants", default=_CANONICAL_VARIANTS)
+    pre_args, _ = pre.parse_known_args(argv)
+    is_canonical = (
+        pre_args.split_date == _CANONICAL_SPLIT_DATE
+        and pre_args.variants == _CANONICAL_VARIANTS
+    )
+
+    if not is_canonical:
+        # Non-canonical CLI overrides: run the legacy body to update
+        # results/nfo/time_split_report.md for the operator's immediate use,
+        # but REFUSE to emit a run directory. The run dir is the canonical
+        # record and must describe exactly what the study spec at
+        # configs/nfo/studies/time_split_default.yaml declares — not ad-hoc
+        # parameters. To publish a run with a different split or variant set,
+        # add a new study YAML (e.g. time_split_2025h2.yaml) and a sibling
+        # CLI entrypoint that wraps with that spec.
+        log.warning(
+            "Non-canonical CLI overrides detected (split_date=%r, variants=%r). "
+            "Running legacy body to refresh results/nfo/time_split_report.md, but "
+            "NOT emitting a run directory. Canonical runs must use defaults "
+            "(split_date=%r, variants=%r) matching configs/nfo/studies/"
+            "time_split_default.yaml.",
+            pre_args.split_date, pre_args.variants,
+            _CANONICAL_SPLIT_DATE, _CANONICAL_VARIANTS,
+        )
+        _legacy_main(argv)
+        return 0
+
     def run_logic() -> dict:
         return _legacy_main(argv)
 
-    # results/nfo/time_split_report.md is a LEGACY multi-variant (V3-V6
-    # day-matched) report. Mirroring it into the run dir would misrepresent
-    # provenance — the manifest declares cycle_matched V3 from v3_frozen.yaml,
-    # which those legacy numbers do not reflect. The engine's V3 cycle_matched
-    # shadow (run_time_split) emits its metrics into the run's metrics.json;
-    # the methodology-headered report.md is the authoritative record. The
-    # legacy multi-variant report stays at the top level for operators who
-    # still want the cross-variant view.
     result = wrap_legacy_run(
         study_type="time_split",
         strategy_path=ROOT / "configs" / "nfo" / "strategies" / "v3_frozen.yaml",
