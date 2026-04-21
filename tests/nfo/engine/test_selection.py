@@ -69,14 +69,13 @@ def test_select_day_matched_filters_by_delta():
     assert out.iloc[0]["param_delta"] == 0.30
 
 
-def test_live_rule_not_implemented_raises():
-    with pytest.raises(NotImplementedError, match="P3"):
-        select_live_rule(
-            cycles={},
-            strategy_spec=None,  # not consulted
-            sessions=[],
-            simulator=lambda **kw: None,
-        )
+def test_live_rule_no_longer_raises_not_implemented():
+    # P3-E1: select_live_rule is now fully implemented.
+    # Calling with empty cycles returns an empty frame, not NotImplementedError.
+    out = select_live_rule(
+        {}, None, [], client=None, under=None, spot_daily=pd.DataFrame(),
+    )
+    assert out.empty
 
 
 # ── Parity: cycle_matched must match robustness.pick_trade_for_expiry ──

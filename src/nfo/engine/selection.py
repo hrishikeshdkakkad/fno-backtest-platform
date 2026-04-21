@@ -4,13 +4,16 @@ Consumes trade_universe (a DataFrame of candidate trades with metadata + realize
 outcomes — legacy name `spread_trades.csv`). For P2, cycle_matched reproduces
 legacy `src/nfo/robustness.pick_trade_for_expiry` row-for-row on V3.
 
-live_rule requires trade simulation from the resolved entry date; that lands
-in P3 when `engine.execution.simulate_cycle` ships. This module stubs it.
+For P3-E1, live_rule is the capstone: it resolves entry via
+`engine.entry.resolve_entry_date` and runs the per-cycle simulator in
+`engine.execution.run_cycle_from_dhan`. This module stays free of a hard
+Dhan import — `client` and `under` are duck-typed parameters.
 """
 from __future__ import annotations
 
+from dataclasses import asdict
 from datetime import date
-from typing import Callable, Iterable, Literal
+from typing import Iterable, Literal
 
 import pandas as pd
 
@@ -99,13 +102,57 @@ def select_live_rule(
     cycles: dict[str, CycleFires],
     strategy_spec: StrategySpec,
     sessions: Iterable[date],
-    simulator: Callable,
+    *,
+    client,                          # DhanClient — not type-imported to keep this module
+                                     # free of Dhan hard dependency
+    under,                           # Underlying
+    spot_daily: pd.DataFrame,
 ) -> pd.DataFrame:
-    raise NotImplementedError(
-        "live_rule selection requires engine.execution; deferred to P3. "
-        "Master design §12 item 3: engine.entry.resolve_entry_date ships in P2; "
-        "engine.execution.simulate_cycle ships in P3."
-    )
+    """Full live-rule selection.
+
+    For each cycle:
+      1. resolve_entry_date(spec, first_fire_date, sessions) -> entry_date
+      2. Skip if None (no session on/after fire before expiry)
+      3. engine.execution.run_cycle_from_dhan(...) -> SimulatedTrade
+      4. Enrich row with cycle_id, selection_id, first_fire_date
+
+    Returns a DataFrame with the same column schema as v3_live_trades_*.csv
+    plus canonical id columns.
+    """
+    # Local imports: keep the module free of heavy deps at import time and
+    # allow monkeypatching `nfo.engine.execution.run_cycle_from_dhan` in tests.
+    from nfo.engine import execution as _execution
+    from nfo.engine.entry import resolve_entry_date
+
+    sessions_list = list(sessions)
+    if not cycles:
+        return pd.DataFrame()
+
+    rows: list[dict] = []
+    for cycle in sorted(cycles.values(), key=lambda c: c.target_expiry):
+        entry_date = resolve_entry_date(
+            spec=strategy_spec,
+            first_fire_date=cycle.first_fire_date,
+            sessions=sessions_list,
+        )
+        if entry_date is None or entry_date >= cycle.target_expiry:
+            continue
+        sim = _execution.run_cycle_from_dhan(
+            client=client, under=under, strategy_spec=strategy_spec,
+            entry_date=entry_date, expiry_date=cycle.target_expiry,
+            spot_daily=spot_daily,
+        )
+        if sim is None:
+            continue
+        row = asdict(sim.spread_trade)
+        row["cycle_id"] = sim.cycle_id
+        row["trade_id"] = sim.trade_id
+        row["first_fire_date"] = cycle.first_fire_date.isoformat()
+        row["selection_id"] = selection_id(
+            cycle.cycle_id, "live_rule", strategy_spec.exit_rule.variant,
+        )
+        rows.append(row)
+    return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
 def _pick_by_pt_variant(sub: pd.DataFrame, pt_variant: str) -> pd.Series | None:
