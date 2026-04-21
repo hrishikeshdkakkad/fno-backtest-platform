@@ -33,9 +33,10 @@ import pandas as pd
 
 from nfo import calibrate
 from nfo.client import DhanClient
-from nfo.config import RESULTS_DIR, ROOT
+from nfo.config import DATA_DIR, RESULTS_DIR, ROOT
 from nfo.data import load_underlying_daily
 from nfo.specs.loader import load_strategy
+from nfo.specs.study import DatasetRef as _DatasetRef
 from nfo.studies.live_replay import run_live_replay
 from nfo.universe import get as get_under
 
@@ -44,8 +45,6 @@ log = logging.getLogger("v3_live_rule")
 _HERE = Path(__file__).resolve().parent
 
 # P6: dataset references for drift detection.
-from nfo.config import DATA_DIR
-from nfo.specs.study import DatasetRef as _DatasetRef
 
 _DATASET_REFS = [
     _DatasetRef(
@@ -176,9 +175,8 @@ def _legacy_main() -> dict[str, Any]:
     }
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None) -> int:  # noqa: ARG001 (argv reserved for CLI parity with other scripts)
     from datetime import date
-    from nfo.config import RESULTS_DIR, ROOT
     from nfo.reporting.wrap_legacy_run import wrap_legacy_run
 
     def run_logic() -> dict:
