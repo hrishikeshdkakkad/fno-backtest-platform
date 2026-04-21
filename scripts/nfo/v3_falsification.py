@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import logging
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -463,7 +464,7 @@ def _summarise_entry_pert() -> str | None:
 # ── CLI ─────────────────────────────────────────────────────────────────────
 
 
-def main(argv: list[str] | None = None) -> int:
+def _legacy_main(argv: list[str] | None = None) -> dict[str, Any]:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--capital", type=float, default=10_00_000)
     ap.add_argument("--tail-loss-iterations", type=int, default=5_000)
@@ -551,6 +552,42 @@ def main(argv: list[str] | None = None) -> int:
     log.info("Wrote falsification_report.md + 3 CSVs.")
     print()
     print(report)
+    metrics: dict[str, Any] = {
+        "tail_loss_rows": int(len(tail_df)),
+        "allocation_rows": int(len(alloc_df)),
+        "walkforward_rows": int(len(walk_df)) if isinstance(walk_df, pd.DataFrame) else 0,
+    }
+    body_markdown = (
+        "See `tables/` for full outputs. Legacy artifacts mirrored from "
+        "`results/nfo/`.\n"
+    )
+    warnings: list[str] = []
+    return {"metrics": metrics, "body_markdown": body_markdown, "warnings": warnings}
+
+
+def main(argv: list[str] | None = None) -> int:
+    from datetime import date
+    from nfo.config import RESULTS_DIR, ROOT
+    from nfo.reporting.wrap_legacy_run import wrap_legacy_run
+
+    def run_logic() -> dict:
+        return _legacy_main(argv)
+
+    result = wrap_legacy_run(
+        study_type="falsification",
+        strategy_path=ROOT / "configs" / "nfo" / "strategies" / "v3_frozen.yaml",
+        study_path=ROOT / "configs" / "nfo" / "studies" / "falsification_default.yaml",
+        legacy_artifacts=[
+            RESULTS_DIR / "falsify_tail_loss.csv",
+            RESULTS_DIR / "falsify_allocation.csv",
+            RESULTS_DIR / "falsify_walkforward.csv",
+            RESULTS_DIR / "falsification_report.md",
+        ],
+        window=(date(2024, 2, 1), date(2026, 4, 18)),
+        run_logic=run_logic,
+        runs_root=RESULTS_DIR / "runs",
+    )
+    print(result.run_dir.path)
     return 0
 
 
