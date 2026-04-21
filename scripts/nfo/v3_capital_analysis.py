@@ -22,6 +22,7 @@ import logging
 import math
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -271,7 +272,7 @@ def _write_report(res: dict) -> str:
     return "\n".join(lines)
 
 
-def main(argv: list[str] | None = None) -> int:
+def _legacy_main(argv: list[str] | None = None) -> dict[str, Any]:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--capital", type=float, default=10_00_000,
                    help="Starting capital in INR (default ₹10L).")
@@ -289,6 +290,42 @@ def main(argv: list[str] | None = None) -> int:
     log.info("Wrote %s and %s", out_md, out_csv)
     print()
     print(report)
+    metrics = {
+        "trades": int(res.get("n_trades", 0)),
+        "total_pnl_inr": float(res.get("total_pnl_fixed", 0.0)),
+        "win_rate": float(res.get("win_rate", 0.0)),
+    }
+    body_markdown = (
+        "See `tables/` for full outputs. Legacy artifacts mirrored from "
+        "`results/nfo/`.\n"
+    )
+    warnings: list[str] = []
+    return {"metrics": metrics, "body_markdown": body_markdown, "warnings": warnings}
+
+
+def main(argv: list[str] | None = None) -> int:
+    from datetime import date
+    from nfo.config import RESULTS_DIR, ROOT
+    from nfo.reporting.wrap_legacy_run import wrap_legacy_run
+
+    def run_logic() -> dict:
+        return _legacy_main(argv)
+
+    result = wrap_legacy_run(
+        study_type="capital_analysis",
+        strategy_path=ROOT / "configs" / "nfo" / "strategies" / "v3_frozen.yaml",
+        study_path=ROOT / "configs" / "nfo" / "studies" / "capital_analysis_10L.yaml",
+        legacy_artifacts=[
+            RESULTS_DIR / "v3_capital_report_pt50.md",
+            RESULTS_DIR / "v3_capital_report_hte.md",
+            RESULTS_DIR / "v3_capital_trades_pt50.csv",
+            RESULTS_DIR / "v3_capital_trades_hte.csv",
+        ],
+        window=(date(2024, 2, 1), date(2026, 4, 18)),
+        run_logic=run_logic,
+        runs_root=RESULTS_DIR / "runs",
+    )
+    print(result.run_dir.path)
     return 0
 
 
