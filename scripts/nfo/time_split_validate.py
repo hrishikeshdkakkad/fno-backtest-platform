@@ -22,6 +22,7 @@ import argparse
 import logging
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
@@ -135,7 +136,7 @@ def _write_report(
     return "\n".join(lines)
 
 
-def main(argv: list[str] | None = None) -> int:
+def _legacy_main(argv: list[str] | None = None) -> dict[str, Any]:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--split-date", default="2025-01-01",
                    help="Train cutoff: all trades with entry < this date go into train.")
@@ -196,6 +197,35 @@ def main(argv: list[str] | None = None) -> int:
     log.info("Wrote %s", out_md)
     print()
     print(report)
+    metrics: dict[str, Any] = {"n_variants": int(len(per_variant))}
+    body_markdown = (
+        "See `tables/` for full outputs. Legacy artifacts mirrored from "
+        "`results/nfo/`.\n"
+    )
+    warnings: list[str] = []
+    return {"metrics": metrics, "body_markdown": body_markdown, "warnings": warnings}
+
+
+def main(argv: list[str] | None = None) -> int:
+    from datetime import date
+    from nfo.config import RESULTS_DIR, ROOT
+    from nfo.reporting.wrap_legacy_run import wrap_legacy_run
+
+    def run_logic() -> dict:
+        return _legacy_main(argv)
+
+    result = wrap_legacy_run(
+        study_type="time_split",
+        strategy_path=ROOT / "configs" / "nfo" / "strategies" / "v3_frozen.yaml",
+        study_path=ROOT / "configs" / "nfo" / "studies" / "time_split_default.yaml",
+        legacy_artifacts=[
+            RESULTS_DIR / "time_split_report.md",
+        ],
+        window=(date(2024, 2, 1), date(2026, 4, 18)),
+        run_logic=run_logic,
+        runs_root=RESULTS_DIR / "runs",
+    )
+    print(result.run_dir.path)
     return 0
 
 
