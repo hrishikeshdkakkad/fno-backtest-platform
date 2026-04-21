@@ -27,13 +27,42 @@ from nfo.reporting.git_version import current_code_version
 from nfo.specs.hashing import short_hash
 from nfo.specs.loader import load_strategy, load_study
 from nfo.specs.manifest import RunManifest
-from nfo.specs.study import StudyType
+from nfo.specs.study import DatasetRef, StudyType
 
 
 @dataclass
 class WrappedRun:
     run_dir: RunDirectory
     manifest: RunManifest
+
+
+def _resolve_dataset_hashes(refs: list[DatasetRef]) -> dict[str, str]:
+    """For each ref, read <ref.path>/manifest.json and extract parquet_sha256.
+
+    Missing manifests are logged and skipped (returning no entry for that ref) —
+    so an incomplete dataset setup doesn't crash the run, but the resulting
+    manifest will have an empty hash for that dataset_id which is_run_stale
+    will later flag as `dataset_missing`.
+    """
+    import json
+    import logging
+
+    log = logging.getLogger("wrap_legacy_run")
+    out: dict[str, str] = {}
+    for ref in refs:
+        mpath = Path(ref.path) / "manifest.json"
+        if not mpath.exists():
+            log.warning("dataset manifest missing for %s at %s", ref.dataset_id, mpath)
+            continue
+        try:
+            raw = json.loads(mpath.read_text())
+        except Exception as exc:
+            log.warning("failed to parse dataset manifest %s: %s", mpath, exc)
+            continue
+        h = raw.get("parquet_sha256")
+        if h:
+            out[ref.dataset_id] = h
+    return out
 
 
 def wrap_legacy_run(
@@ -46,6 +75,7 @@ def wrap_legacy_run(
     run_logic: Callable[[], dict[str, Any]],
     runs_root: Path,
     code_version: str | None = None,
+    dataset_refs: list[DatasetRef] | None = None,
 ) -> WrappedRun:
     strategy, strategy_hash_hex = load_strategy(strategy_path)
     study_hash_hex = ""
@@ -68,6 +98,8 @@ def wrap_legacy_run(
     warnings = list(result.get("warnings", []) or [])
     status = "warnings" if warnings else "ok"
 
+    dataset_hashes = _resolve_dataset_hashes(dataset_refs or [])
+
     manifest = RunManifest(
         run_id=run_id,
         created_at=created_at,
@@ -78,7 +110,7 @@ def wrap_legacy_run(
         strategy_version=strategy.strategy_version,
         study_type=study_type,
         selection_mode=strategy.selection_rule.mode,
-        dataset_hashes={},
+        dataset_hashes=dataset_hashes,
         window_start=window[0],
         window_end=window[1],
         artifacts=[],

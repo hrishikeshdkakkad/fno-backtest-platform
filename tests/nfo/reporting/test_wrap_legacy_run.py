@@ -93,3 +93,101 @@ def test_wrap_legacy_run_sets_status_warnings(tmp_path):
     manifest = json.loads((result.run_dir.path / "manifest.json").read_text())
     assert manifest["status"] == "warnings"
     assert manifest["warnings"] == ["data gap: 2025-01-06"]
+
+
+def test_wrap_legacy_run_populates_dataset_hashes(tmp_path):
+    """When dataset_refs pointing at valid manifests are passed, the run's
+    dataset_hashes gets populated from each manifest's parquet_sha256."""
+    strat_path = tmp_path / "v3.yaml"
+    strat_path.write_text(STRAT_YAML)
+
+    # Seed a fake dataset dir with a manifest.json
+    ds_dir = tmp_path / "datasets" / "features" / "ds_fake"
+    ds_dir.mkdir(parents=True)
+    (ds_dir / "manifest.json").write_text(
+        '{"dataset_id":"ds_fake","dataset_type":"features","source_paths":[],'
+        '"date_window":null,"row_count":0,"build_time":"2026-04-22T00:00:00Z",'
+        '"code_version":"a","upstream_datasets":[],'
+        '"parquet_sha256":"HASH123","schema_fingerprint":"SCHEMA456"}'
+    )
+
+    from nfo.specs.study import DatasetRef
+    refs = [DatasetRef(dataset_id="ds_fake", dataset_type="features", path=ds_dir)]
+
+    def run_logic():
+        return {"metrics": {}, "body_markdown": "", "warnings": []}
+
+    result = wrap_legacy_run(
+        study_type="capital_analysis",
+        strategy_path=strat_path,
+        study_path=None,
+        legacy_artifacts=[],
+        window=(date(2024, 2, 1), date(2026, 4, 18)),
+        run_logic=run_logic,
+        runs_root=tmp_path / "runs",
+        code_version="testsha",
+        dataset_refs=refs,
+    )
+
+    import json as _json
+    m = _json.loads((result.run_dir.path / "manifest.json").read_text())
+    assert m["dataset_hashes"] == {"ds_fake": "HASH123"}
+
+
+def test_wrap_legacy_run_missing_manifest_skips_ref(tmp_path, caplog):
+    """If a DatasetRef points at a non-existent manifest, skip it (log warning)."""
+    strat_path = tmp_path / "v3.yaml"
+    strat_path.write_text(STRAT_YAML)
+
+    from nfo.specs.study import DatasetRef
+    # Path doesn't exist
+    refs = [DatasetRef(
+        dataset_id="ds_missing",
+        dataset_type="features",
+        path=tmp_path / "datasets" / "features" / "nope",
+    )]
+
+    def run_logic():
+        return {"metrics": {}, "body_markdown": "", "warnings": []}
+
+    import logging
+    with caplog.at_level(logging.WARNING, logger="wrap_legacy_run"):
+        result = wrap_legacy_run(
+            study_type="capital_analysis",
+            strategy_path=strat_path,
+            study_path=None,
+            legacy_artifacts=[],
+            window=(date(2024, 2, 1), date(2026, 4, 18)),
+            run_logic=run_logic,
+            runs_root=tmp_path / "runs",
+            code_version="testsha",
+            dataset_refs=refs,
+        )
+    import json as _json
+    m = _json.loads((result.run_dir.path / "manifest.json").read_text())
+    assert m["dataset_hashes"] == {}
+    assert any("dataset manifest missing" in rec.message for rec in caplog.records)
+
+
+def test_wrap_legacy_run_empty_refs_leaves_empty_hashes(tmp_path):
+    """No refs passed → dataset_hashes is {}."""
+    strat_path = tmp_path / "v3.yaml"
+    strat_path.write_text(STRAT_YAML)
+
+    def run_logic():
+        return {"metrics": {}, "body_markdown": "", "warnings": []}
+
+    result = wrap_legacy_run(
+        study_type="capital_analysis",
+        strategy_path=strat_path,
+        study_path=None,
+        legacy_artifacts=[],
+        window=(date(2024, 2, 1), date(2026, 4, 18)),
+        run_logic=run_logic,
+        runs_root=tmp_path / "runs",
+        code_version="testsha",
+        # dataset_refs omitted
+    )
+    import json as _json
+    m = _json.loads((result.run_dir.path / "manifest.json").read_text())
+    assert m["dataset_hashes"] == {}
