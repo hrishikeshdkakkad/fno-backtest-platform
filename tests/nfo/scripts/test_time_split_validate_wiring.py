@@ -50,8 +50,10 @@ def test_time_split_validate_calls_wrap_legacy_run(monkeypatch, tmp_path):
     assert captured["study_type"] == "time_split"
     assert captured["strategy_path"].name == "v3_frozen.yaml"
     assert captured["study_path"].name == "time_split_default.yaml"
-    names = [str(p) for p in captured["legacy_artifacts"]]
-    assert any("time_split_report.md" in p for p in names)
+    # The legacy time_split_report.md is multi-variant (V3-V6 day-matched)
+    # and intentionally NOT mirrored into this run — it would misrepresent
+    # the cycle_matched V3 provenance the manifest declares.
+    assert captured["legacy_artifacts"] == []
     assert "dataset_refs" in captured
     assert {r.dataset_id for r in captured["dataset_refs"]} == {
         "historical_features_2024-01_2026-04",

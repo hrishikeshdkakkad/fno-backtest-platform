@@ -269,6 +269,15 @@ def main(argv: list[str] | None = None) -> int:
     from datetime import date
     from nfo.reporting.wrap_legacy_run import wrap_legacy_run
 
+    # Parse --pt-variant before wrapping so the run's legacy_artifacts mirror
+    # only the variant actually produced by this invocation. Otherwise a stale
+    # sibling CSV from an earlier run would leak into the fresh run dir and
+    # misrepresent its provenance.
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--pt-variant", choices=("pt50", "hte"), default="hte")
+    args, _ = parser.parse_known_args(argv)
+    variant = args.pt_variant
+
     def run_logic() -> dict:
         return _legacy_main(argv)
 
@@ -277,10 +286,8 @@ def main(argv: list[str] | None = None) -> int:
         strategy_path=ROOT / "configs" / "nfo" / "strategies" / "v3_frozen.yaml",
         study_path=ROOT / "configs" / "nfo" / "studies" / "capital_analysis_10l.yaml",
         legacy_artifacts=[
-            RESULTS_DIR / "v3_capital_report_pt50.md",
-            RESULTS_DIR / "v3_capital_report_hte.md",
-            RESULTS_DIR / "v3_capital_trades_pt50.csv",
-            RESULTS_DIR / "v3_capital_trades_hte.csv",
+            RESULTS_DIR / f"v3_capital_report_{variant}.md",
+            RESULTS_DIR / f"v3_capital_trades_{variant}.csv",
         ],
         window=(date(2024, 2, 1), date(2026, 4, 18)),
         run_logic=run_logic,

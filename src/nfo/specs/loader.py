@@ -16,7 +16,12 @@ class StrategyDriftError(Exception):
     """Raised when strategy_version did not bump despite content changes."""
 
 
-_REGISTRY_PATH: Path = Path("configs/nfo/.registry.json")
+# Resolve the registry path relative to the repo root (src/nfo/specs/loader.py
+# is always 3 parents below the repo root) so invoking any wrapper from an
+# arbitrary cwd still consults the tracked registry at configs/nfo/.registry.json.
+# Test code uses reset_registry_for_tests() to redirect to a tmp path.
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_REGISTRY_PATH: Path = _REPO_ROOT / "configs" / "nfo" / ".registry.json"
 
 
 def reset_registry_for_tests(path: Path) -> None:

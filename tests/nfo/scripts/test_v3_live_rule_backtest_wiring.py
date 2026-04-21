@@ -23,10 +23,10 @@ def _load_script_module(name: str):
 
 
 def test_v3_live_rule_backtest_calls_wrap_legacy_run(monkeypatch, tmp_path):
-    captured: dict = {}
+    captured_calls: list[dict] = []
 
     def fake_wrap(**kwargs):
-        captured.update(kwargs)
+        captured_calls.append(dict(kwargs))
 
         class _R:
             class run_dir:
@@ -48,15 +48,19 @@ def test_v3_live_rule_backtest_calls_wrap_legacy_run(monkeypatch, tmp_path):
     )
     ret = mod.main()
     assert ret == 0
-    assert captured["study_type"] == "live_replay"
-    assert captured["strategy_path"].name == "v3_live_rule.yaml"
-    assert captured["study_path"].name == "live_replay_default.yaml"
-    names = [str(p) for p in captured["legacy_artifacts"]]
-    assert any("v3_live_trades_pt50.csv" in p for p in names)
-    assert any("v3_live_trades_hte.csv" in p for p in names)
-    assert any("v3_live_report.md" in p for p in names)
-    assert "dataset_refs" in captured
-    assert {r.dataset_id for r in captured["dataset_refs"]} == {
-        "historical_features_2024-01_2026-04",
-        "trade_universe_nifty_2024-01_2026-04",
-    }
+    assert len(captured_calls) == 2
+    pt50, hte = captured_calls
+    for c in (pt50, hte):
+        assert c["study_type"] == "live_replay"
+        assert c["study_path"].name == "live_replay_default.yaml"
+        assert "dataset_refs" in c
+        assert {r.dataset_id for r in c["dataset_refs"]} == {
+            "historical_features_2024-01_2026-04",
+            "trade_universe_nifty_2024-01_2026-04",
+        }
+    assert pt50["strategy_path"].name == "v3_live_rule_pt50.yaml"
+    assert hte["strategy_path"].name == "v3_live_rule.yaml"
+    pt50_names = [str(p) for p in pt50["legacy_artifacts"]]
+    hte_names = [str(p) for p in hte["legacy_artifacts"]]
+    assert any("v3_live_trades_pt50.csv" in p for p in pt50_names)
+    assert any("v3_live_trades_hte.csv" in p for p in hte_names)

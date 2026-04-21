@@ -179,25 +179,41 @@ def main(argv: list[str] | None = None) -> int:  # noqa: ARG001 (argv reserved f
     from datetime import date
     from nfo.reporting.wrap_legacy_run import wrap_legacy_run
 
-    def run_logic() -> dict:
-        return _legacy_main()
+    # _legacy_main generates both PT50 and HTE from two different strategy YAMLs
+    # (v3_live_rule_pt50.yaml @ 3.0.2 and v3_live_rule.yaml @ 3.0.1). Each variant
+    # must live in its own run directory under the matching spec so the run's
+    # manifest + methodology header + drift detection describe exactly the spec
+    # that produced the tables. We run the legacy body once, then wrap twice.
+    legacy_result: dict = {}
 
-    result = wrap_legacy_run(
-        study_type="live_replay",
-        strategy_path=ROOT / "configs" / "nfo" / "strategies" / "v3_live_rule.yaml",
-        study_path=ROOT / "configs" / "nfo" / "studies" / "live_replay_default.yaml",
-        legacy_artifacts=[
-            RESULTS_DIR / "v3_live_trades_pt50.csv",
-            RESULTS_DIR / "v3_live_trades_hte.csv",
-            RESULTS_DIR / "v3_live_report.md",
-        ],
-        window=(date(2024, 2, 1), date(2026, 4, 18)),
-        run_logic=run_logic,
-        runs_root=RESULTS_DIR / "runs",
-        dataset_refs=_DATASET_REFS,
-    )
-    print(result.run_dir.path)
-    return 0
+    def run_logic_once() -> dict:
+        if not legacy_result:
+            legacy_result.update(_legacy_main())
+        return {
+            "metrics": legacy_result.get("metrics", {}),
+            "body_markdown": legacy_result.get("body_markdown", ""),
+            "warnings": legacy_result.get("warnings", []),
+        }
+
+    per_variant = [
+        ("pt50", "v3_live_rule_pt50.yaml", "v3_live_trades_pt50.csv"),
+        ("hte",  "v3_live_rule.yaml",      "v3_live_trades_hte.csv"),
+    ]
+    last_run_path = None
+    for variant, yaml_name, csv_name in per_variant:
+        result = wrap_legacy_run(
+            study_type="live_replay",
+            strategy_path=ROOT / "configs" / "nfo" / "strategies" / yaml_name,
+            study_path=ROOT / "configs" / "nfo" / "studies" / "live_replay_default.yaml",
+            legacy_artifacts=[RESULTS_DIR / csv_name],
+            window=(date(2024, 2, 1), date(2026, 4, 18)),
+            run_logic=run_logic_once,
+            runs_root=RESULTS_DIR / "runs",
+            dataset_refs=_DATASET_REFS,
+        )
+        last_run_path = result.run_dir.path
+        print(result.run_dir.path)
+    return 0 if last_run_path is not None else 1
 
 
 if __name__ == "__main__":

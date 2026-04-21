@@ -288,13 +288,19 @@ def main(argv: list[str] | None = None) -> int:
     def run_logic() -> dict:
         return _legacy_main(argv)
 
+    # results/nfo/time_split_report.md is a LEGACY multi-variant (V3-V6
+    # day-matched) report. Mirroring it into the run dir would misrepresent
+    # provenance — the manifest declares cycle_matched V3 from v3_frozen.yaml,
+    # which those legacy numbers do not reflect. The engine's V3 cycle_matched
+    # shadow (run_time_split) emits its metrics into the run's metrics.json;
+    # the methodology-headered report.md is the authoritative record. The
+    # legacy multi-variant report stays at the top level for operators who
+    # still want the cross-variant view.
     result = wrap_legacy_run(
         study_type="time_split",
         strategy_path=ROOT / "configs" / "nfo" / "strategies" / "v3_frozen.yaml",
         study_path=ROOT / "configs" / "nfo" / "studies" / "time_split_default.yaml",
-        legacy_artifacts=[
-            RESULTS_DIR / "time_split_report.md",
-        ],
+        legacy_artifacts=[],
         window=(date(2024, 2, 1), date(2026, 4, 18)),
         run_logic=run_logic,
         runs_root=RESULTS_DIR / "runs",
