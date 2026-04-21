@@ -38,6 +38,7 @@ import time
 from dataclasses import asdict
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
@@ -110,7 +111,7 @@ def _format_inr(x: float) -> str:
     return f"{sign}₹{v:,.0f}"
 
 
-def main() -> int:
+def _legacy_main() -> dict[str, Any]:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
     # Make redesign_variants importable for `_v3_cycles`.
     if str(_HERE) not in sys.path:
@@ -227,6 +228,40 @@ def main() -> int:
         report_lines.append("")
     (RESULTS_DIR / "v3_live_report.md").write_text("\n".join(report_lines), encoding="utf-8")
     log.info("Done in %.1fs. Wrote v3_live_report.md + 2 CSVs.", time.time() - t0)
+    metrics: dict[str, Any] = {}
+    for variant_name, _, _ in VARIANT_CONFIGS:
+        df = results.get(variant_name)
+        metrics[f"{variant_name}_trades"] = int(len(df)) if df is not None else 0
+    body_markdown = (
+        "See `tables/` for full outputs. Legacy artifacts mirrored from "
+        "`results/nfo/`.\n"
+    )
+    warnings: list[str] = []
+    return {"metrics": metrics, "body_markdown": body_markdown, "warnings": warnings}
+
+
+def main(argv: list[str] | None = None) -> int:
+    from datetime import date
+    from nfo.config import RESULTS_DIR, ROOT
+    from nfo.reporting.wrap_legacy_run import wrap_legacy_run
+
+    def run_logic() -> dict:
+        return _legacy_main()
+
+    result = wrap_legacy_run(
+        study_type="live_replay",
+        strategy_path=ROOT / "configs" / "nfo" / "strategies" / "v3_live_rule.yaml",
+        study_path=ROOT / "configs" / "nfo" / "studies" / "live_replay_default.yaml",
+        legacy_artifacts=[
+            RESULTS_DIR / "v3_live_trades_pt50.csv",
+            RESULTS_DIR / "v3_live_trades_hte.csv",
+            RESULTS_DIR / "v3_live_report.md",
+        ],
+        window=(date(2024, 2, 1), date(2026, 4, 18)),
+        run_logic=run_logic,
+        runs_root=RESULTS_DIR / "runs",
+    )
+    print(result.run_dir.path)
     return 0
 
 
