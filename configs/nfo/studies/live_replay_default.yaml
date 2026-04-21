@@ -1,0 +1,10 @@
+study_id: live_replay_default
+study_type: live_replay
+strategy_spec_ref: configs/nfo/strategies/v3_live_rule.yaml
+dataset_refs: []
+parameters:
+  capital_inr: 1000000
+  pt_variants: [pt50, hte]
+  window_start: "2024-01-15"
+  window_end: "2026-04-18"
+output_profile: default

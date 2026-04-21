@@ -1,0 +1,9 @@
+study_id: variant_comparison_default
+study_type: variant_comparison
+strategy_spec_ref: configs/nfo/strategies/v3_frozen.yaml
+dataset_refs: []
+parameters:
+  variant_names: [V0, V1, V2, V3, V4, V5, V6]
+  window_start: "2024-01-15"
+  window_end: "2026-04-18"
+output_profile: default

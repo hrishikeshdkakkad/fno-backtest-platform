@@ -1,0 +1,10 @@
+study_id: capital_analysis_10L
+study_type: capital_analysis
+strategy_spec_ref: configs/nfo/strategies/v3_frozen.yaml
+dataset_refs: []
+parameters:
+  capital_inr: 1000000
+  pt_variants: [pt50, hte]
+  window_start: "2024-01-15"
+  window_end: "2026-04-18"
+output_profile: default

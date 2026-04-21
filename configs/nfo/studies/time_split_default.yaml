@@ -1,0 +1,9 @@
+study_id: time_split_default
+study_type: time_split
+strategy_spec_ref: configs/nfo/strategies/v3_frozen.yaml
+dataset_refs: []
+parameters:
+  train_window: ["2024-01-15", "2024-12-31"]
+  test_window: ["2025-01-01", "2026-04-18"]
+  inconclusive_threshold_trades: 10
+output_profile: default

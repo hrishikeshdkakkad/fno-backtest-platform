@@ -1,0 +1,10 @@
+study_id: robustness_default
+study_type: robustness
+strategy_spec_ref: configs/nfo/strategies/v3_frozen.yaml
+dataset_refs: []
+parameters:
+  capital_inr: 1000000
+  bootstrap_iterations: 10000
+  seed: 42
+  slippage_sweep: [0, 250, 500, 750, 1000]
+output_profile: default

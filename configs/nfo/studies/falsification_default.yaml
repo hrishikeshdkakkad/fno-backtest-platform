@@ -1,0 +1,10 @@
+study_id: falsification_default
+study_type: falsification
+strategy_spec_ref: configs/nfo/strategies/v3_frozen.yaml
+dataset_refs: []
+parameters:
+  capital_inr: 1000000
+  walkforward_folds: 4
+  tail_loss_injections: [1, 2, 3]
+  allocation_fractions: [0.25, 0.5, 1.0]
+output_profile: default
