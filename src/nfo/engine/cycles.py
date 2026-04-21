@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections import namedtuple
 from datetime import date, datetime, timezone
+from typing import Any
 
 
 def feature_day_id(underlying: str, on_date: date) -> str:
@@ -56,3 +58,41 @@ def build_run_id(*, created_at: datetime, study_id: str, strategy_hash_short: st
         created_at = created_at.astimezone(tz=timezone.utc)
     ts = created_at.strftime("%Y%m%dT%H%M%S")
     return f"{ts}-{study_id}-{strategy_hash_short}"
+
+
+CycleFires = namedtuple("CycleFires", "cycle_id first_fire_date target_expiry fire_dates")
+
+
+def group_fires_by_cycle(
+    fires: list[tuple[date, dict]],
+    features_df: Any,
+    *,
+    underlying: str,
+    strategy_version: str,
+) -> dict[str, CycleFires]:
+    """Group firing dates by target_expiry cycle. Master design §6, §12.
+
+    Single source of truth for cycle grouping. Replaces legacy
+    `scripts/nfo/v3_live_rule_backtest._v3_cycles` and
+    `src/nfo/robustness.get_v3_matched_trades`'s by_expiry loop.
+    """
+    by_expiry: dict[str, list[date]] = {}
+    for fire_date, _detail in fires:
+        matching = features_df[features_df["date"].dt.date == fire_date]
+        if matching.empty:
+            continue
+        exp_str = str(matching["target_expiry"].iloc[0])
+        if not exp_str or exp_str == "nan":
+            continue
+        by_expiry.setdefault(exp_str, []).append(fire_date)
+    out: dict[str, CycleFires] = {}
+    for exp_str, dates in by_expiry.items():
+        exp_date = date.fromisoformat(exp_str)
+        cid = cycle_id(underlying, exp_date, strategy_version)
+        out[cid] = CycleFires(
+            cycle_id=cid,
+            first_fire_date=min(dates),
+            target_expiry=exp_date,
+            fire_dates=sorted(dates),
+        )
+    return out
