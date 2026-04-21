@@ -341,6 +341,55 @@ def evaluate_variant(
     }
 
 
+# ── P2 engine shadow (V3 only, non-authoritative) ──────────────────────────
+
+
+def _shadow_v3_via_engine(
+    signals_df: pd.DataFrame,
+    trades_df: pd.DataFrame,
+    atr_series: pd.Series,
+    *,
+    legacy_firing_days: int | None = None,
+) -> Any:
+    """Shadow V3 through `nfo.studies.variant_comparison` (engine path).
+
+    Non-authoritative: the return value of `evaluate_variant` remains the
+    source of truth for the report; this helper exists so the engine path
+    runs on every `redesign_variants` invocation and surfaces drift vs
+    legacy in the log stream. When `legacy_firing_days` is supplied and the
+    engine disagrees, we emit a single warning line. Errors inside the
+    engine path are caught and logged (never fatal) so this wiring can't
+    break the existing report pipeline.
+
+    Returns `VariantResult` on success, `None` on any exception.
+    """
+    try:
+        from nfo.config import ROOT as _ROOT
+        from nfo.specs.loader import load_strategy
+        from nfo.studies.variant_comparison import run_variant_comparison_v3
+
+        _spec, _ = load_strategy(_ROOT / "configs" / "nfo" / "strategies" / "v3_frozen.yaml")
+
+        def _legacy_event_resolver(entry, dte):
+            return "high" if not _event_pass(
+                entry, dte, severity_high_kinds={"RBI", "FOMC", "BUDGET"}, window_days=10,
+            ) else "none"
+
+        engine_result = run_variant_comparison_v3(
+            spec=_spec, features_df=signals_df, atr_series=atr_series,
+            trades_df=trades_df, event_resolver=_legacy_event_resolver,
+        )
+        if legacy_firing_days is not None and engine_result.n_fires != legacy_firing_days:
+            log.warning(
+                "V3 engine/legacy n_fires drift: engine=%s legacy=%s",
+                engine_result.n_fires, legacy_firing_days,
+            )
+        return engine_result
+    except Exception as exc:  # pragma: no cover - defensive
+        log.warning("V3 engine shadow failed: %s", exc)
+        return None
+
+
 # ── Report + verdict ────────────────────────────────────────────────────────
 
 
@@ -460,6 +509,9 @@ def _legacy_main() -> dict[str, Any]:
     atr_series = _load_nifty_atr(signals_df["date"])
     log.info("Computed ATR-14 over %d days.", atr_series.notna().sum())
 
+    # P2 engine parity path: run V3 through the engine as a shadow evaluation.
+    # The authoritative metrics for the report still come from legacy
+    # evaluate_variant; engine results are logged for drift monitoring.
     variants = make_variants()
     results: list[dict] = []
     for v in variants:
@@ -473,6 +525,11 @@ def _legacy_main() -> dict[str, Any]:
             r["sharpe"], f"{(r['max_loss_rate'] or 0)*100:.1f}%",
             r["passes_all_criteria"],
         )
+        if v.name == "V3":
+            _shadow_v3_via_engine(
+                signals_df, trades_df, atr_series,
+                legacy_firing_days=int(r["firing_days"]),
+            )
 
     pd.DataFrame(results).to_csv(OUT_CSV, index=False)
     report = _write_report(results)
