@@ -1,0 +1,68 @@
+# V3 credit-spread strategy — frozen for falsification.
+# Source of truth: docs/v3-spec-frozen.md (2026-04-20).
+strategy_id: v3
+strategy_version: 3.0.0
+description: >
+  NIFTY credit put spread, 0.30Δ short / 100-pt width / 35 DTE.
+  V3 specific-pass gate requires trend + IV-RV + events OK,
+  with at least one vol signal (VIX>20, VIX 3-mo pct>=0.80, or IV rank>=0.60).
+universe:
+  underlyings: [NIFTY]
+  delta_target: 0.30
+  delta_tolerance: 0.05
+  width_rule: fixed
+  width_value: 100.0
+  dte_target: 35
+  dte_tolerance: 3
+  allowed_contract_families: [PE]
+feature_set:
+  - vix_abs
+  - vix_pct_3mo
+  - iv_rank
+  - iv_minus_rv
+  - trend_score
+  - event_risk_v3
+trigger_rule:
+  score_gates:
+    min_score: 4
+  specific_pass_gates:
+    - s3_iv_rv
+    - s6_trend
+    - s8_events
+  event_window_days: 10
+  feature_thresholds:
+    iv_minus_rv_min_vp: -2.0
+    trend_score_min: 2.0
+    vix_abs_min: 20.0
+    vix_pct_3mo_min: 0.80
+    iv_rank_min: 0.60
+  missing_data_policy: skip_day
+selection_rule:
+  mode: cycle_matched
+  one_trade_per_cycle: true
+  preferred_exit_variant: hte
+  canonical_trade_chooser: first_fire
+  width_handling: strict_fixed
+  tie_breaker_order: [delta_err_asc, width_exact, entry_date_asc]
+entry_rule:
+  earliest_entry_relative_to_first_fire: 0
+  session_snap_rule: forward_only
+  entry_timestamp_convention: session_close
+  allow_pre_fire_entry: true
+exit_rule:
+  variant: hte
+  profit_take_fraction: 1.0
+  manage_at_dte: null
+  expiry_settlement: cash_settled_to_spot
+capital_rule:
+  fixed_capital_inr: 1000000
+  deployment_fraction: 1.0
+  compounding: false
+  lot_rounding_mode: floor
+slippage_rule:
+  model: flat_rupees_per_lot
+  flat_rupees_per_lot: 0.0
+  percent_of_premium: 0.0
+report_defaults:
+  currency: INR
+  underlying_lot_size: 65
