@@ -5,7 +5,7 @@ Usage (from a wrapper script):
   result = wrap_legacy_run(
       study_type="capital_analysis",
       strategy_path=REPO/"configs/nfo/strategies/v3_frozen.yaml",
-      study_path=REPO/"configs/nfo/studies/capital_analysis_10L.yaml",
+      study_path=REPO/"configs/nfo/studies/capital_analysis_10l.yaml",
       legacy_artifacts=[RESULTS/"v3_capital_trades_hte.csv", ...],
       window=(window_start, window_end),
       run_logic=_run,   # returns {"metrics": {...}, "body_markdown": "...", "warnings": [...]}

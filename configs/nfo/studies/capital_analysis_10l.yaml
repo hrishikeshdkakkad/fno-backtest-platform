@@ -1,4 +1,4 @@
-study_id: capital_analysis_10L
+study_id: capital_analysis_10l
 study_type: capital_analysis
 strategy_spec_ref: configs/nfo/strategies/v3_frozen.yaml
 dataset_refs: []

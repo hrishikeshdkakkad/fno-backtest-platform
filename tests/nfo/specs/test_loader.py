@@ -87,7 +87,7 @@ def test_load_study(tmp_path):
     strat.write_text(STRAT_YAML)
     study = tmp_path / "capital.yaml"
     study.write_text(textwrap.dedent(f"""
-        study_id: capital_analysis_10L
+        study_id: capital_analysis_10l
         study_type: capital_analysis
         strategy_spec_ref: {strat}
         dataset_refs: []
@@ -95,5 +95,5 @@ def test_load_study(tmp_path):
           capital_inr: 1000000
     """))
     spec, h = load_study(study)
-    assert spec.study_id == "capital_analysis_10L"
+    assert spec.study_id == "capital_analysis_10l"
     assert len(h) == 64

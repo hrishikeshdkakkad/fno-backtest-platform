@@ -20,7 +20,7 @@ def _ref() -> DatasetRef:
 
 def _spec(**overrides) -> dict:
     base = dict(
-        study_id="capital_analysis_10L",
+        study_id="capital_analysis_10l",
         study_type="capital_analysis",
         strategy_spec_ref=Path("configs/nfo/strategies/v3_frozen.yaml"),
         dataset_refs=[_ref()],
@@ -32,7 +32,7 @@ def _spec(**overrides) -> dict:
 
 def test_study_roundtrip():
     s = StudySpec.model_validate(_spec())
-    assert s.study_id == "capital_analysis_10L"
+    assert s.study_id == "capital_analysis_10l"
 
 
 def test_study_rejects_bad_type():

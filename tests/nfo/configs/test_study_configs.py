@@ -14,7 +14,7 @@ STUDIES = REPO_ROOT / "configs" / "nfo" / "studies"
 
 @pytest.mark.parametrize("yaml_name,expected_type", [
     ("variant_comparison_default.yaml", "variant_comparison"),
-    ("capital_analysis_10L.yaml", "capital_analysis"),
+    ("capital_analysis_10l.yaml", "capital_analysis"),
     ("robustness_default.yaml", "robustness"),
     ("falsification_default.yaml", "falsification"),
     ("time_split_default.yaml", "time_split"),

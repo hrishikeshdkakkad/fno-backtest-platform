@@ -49,7 +49,7 @@ def test_v3_capital_analysis_calls_wrap_legacy_run(monkeypatch, tmp_path):
     assert ret == 0
     assert captured["study_type"] == "capital_analysis"
     assert captured["strategy_path"].name == "v3_frozen.yaml"
-    assert captured["study_path"].name == "capital_analysis_10L.yaml"
+    assert captured["study_path"].name == "capital_analysis_10l.yaml"
     assert any(
         "v3_capital_trades_hte.csv" in str(p) for p in captured["legacy_artifacts"]
     )

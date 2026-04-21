@@ -314,7 +314,7 @@ def main(argv: list[str] | None = None) -> int:
     result = wrap_legacy_run(
         study_type="capital_analysis",
         strategy_path=ROOT / "configs" / "nfo" / "strategies" / "v3_frozen.yaml",
-        study_path=ROOT / "configs" / "nfo" / "studies" / "capital_analysis_10L.yaml",
+        study_path=ROOT / "configs" / "nfo" / "studies" / "capital_analysis_10l.yaml",
         legacy_artifacts=[
             RESULTS_DIR / "v3_capital_report_pt50.md",
             RESULTS_DIR / "v3_capital_report_hte.md",
