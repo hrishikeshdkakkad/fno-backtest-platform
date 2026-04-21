@@ -43,6 +43,23 @@ log = logging.getLogger("v3_live_rule")
 
 _HERE = Path(__file__).resolve().parent
 
+# P6: dataset references for drift detection.
+from nfo.config import DATA_DIR
+from nfo.specs.study import DatasetRef as _DatasetRef
+
+_DATASET_REFS = [
+    _DatasetRef(
+        dataset_id="historical_features_2024-01_2026-04",
+        dataset_type="features",
+        path=DATA_DIR / "datasets" / "features" / "historical_features_2024-01_2026-04",
+    ),
+    _DatasetRef(
+        dataset_id="trade_universe_nifty_2024-01_2026-04",
+        dataset_type="trade_universe",
+        path=DATA_DIR / "datasets" / "trade_universe" / "trade_universe_nifty_2024-01_2026-04",
+    ),
+]
+
 # (variant_name, strategy_yaml_filename) — P5-A1 delegates each variant to
 # `run_live_replay` with its own spec; the pt50 spec mirrors v3_live_rule.yaml
 # but swaps exit_rule to variant=pt50 / profit_take=0.5 / manage_at_dte=21.
@@ -179,6 +196,7 @@ def main(argv: list[str] | None = None) -> int:
         window=(date(2024, 2, 1), date(2026, 4, 18)),
         run_logic=run_logic,
         runs_root=RESULTS_DIR / "runs",
+        dataset_refs=_DATASET_REFS,
     )
     print(result.run_dir.path)
     return 0

@@ -70,6 +70,11 @@ def test_redesign_variants_calls_wrap_legacy_run(monkeypatch, tmp_path):
     assert any("redesign_comparison.csv" in p for p in names)
     assert any("redesign_comparison.md" in p for p in names)
     assert any("redesign_winner.json" in p for p in names)
+    assert "dataset_refs" in captured
+    assert {r.dataset_id for r in captured["dataset_refs"]} == {
+        "historical_features_2024-01_2026-04",
+        "trade_universe_nifty_2024-01_2026-04",
+    }
 
 
 def test_v3_engine_shadow_helper_exists():

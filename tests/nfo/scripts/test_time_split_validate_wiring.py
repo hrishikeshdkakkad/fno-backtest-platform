@@ -52,3 +52,8 @@ def test_time_split_validate_calls_wrap_legacy_run(monkeypatch, tmp_path):
     assert captured["study_path"].name == "time_split_default.yaml"
     names = [str(p) for p in captured["legacy_artifacts"]]
     assert any("time_split_report.md" in p for p in names)
+    assert "dataset_refs" in captured
+    assert {r.dataset_id for r in captured["dataset_refs"]} == {
+        "historical_features_2024-01_2026-04",
+        "trade_universe_nifty_2024-01_2026-04",
+    }

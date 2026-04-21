@@ -55,3 +55,8 @@ def test_v3_falsification_calls_wrap_legacy_run(monkeypatch, tmp_path):
     assert any("falsify_allocation.csv" in p for p in names)
     assert any("falsify_walkforward.csv" in p for p in names)
     assert any("falsification_report.md" in p for p in names)
+    assert "dataset_refs" in captured
+    assert {r.dataset_id for r in captured["dataset_refs"]} == {
+        "historical_features_2024-01_2026-04",
+        "trade_universe_nifty_2024-01_2026-04",
+    }

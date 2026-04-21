@@ -49,6 +49,23 @@ from nfo.studies.falsification import run_falsification
 
 log = logging.getLogger("v3_falsification")
 
+# P6: dataset references for drift detection.
+from nfo.config import DATA_DIR
+from nfo.specs.study import DatasetRef as _DatasetRef
+
+_DATASET_REFS = [
+    _DatasetRef(
+        dataset_id="historical_features_2024-01_2026-04",
+        dataset_type="features",
+        path=DATA_DIR / "datasets" / "features" / "historical_features_2024-01_2026-04",
+    ),
+    _DatasetRef(
+        dataset_id="trade_universe_nifty_2024-01_2026-04",
+        dataset_type="trade_universe",
+        path=DATA_DIR / "datasets" / "trade_universe" / "trade_universe_nifty_2024-01_2026-04",
+    ),
+]
+
 SIGNALS_PATH = RESULTS_DIR / "historical_signals.parquet"
 EXIT_SWEEP_CSV = RESULTS_DIR / "exit_sweep_trades.csv"
 ENTRY_PERT_CSV = RESULTS_DIR / "entry_perturbation_trades.csv"
@@ -634,6 +651,7 @@ def main(argv: list[str] | None = None) -> int:
         window=(date(2024, 2, 1), date(2026, 4, 18)),
         run_logic=run_logic,
         runs_root=RESULTS_DIR / "runs",
+        dataset_refs=_DATASET_REFS,
     )
     print(result.run_dir.path)
     return 0

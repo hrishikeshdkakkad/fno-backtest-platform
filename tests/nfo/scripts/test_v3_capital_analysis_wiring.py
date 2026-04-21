@@ -53,3 +53,8 @@ def test_v3_capital_analysis_calls_wrap_legacy_run(monkeypatch, tmp_path):
     assert any(
         "v3_capital_trades_hte.csv" in str(p) for p in captured["legacy_artifacts"]
     )
+    assert "dataset_refs" in captured
+    assert {r.dataset_id for r in captured["dataset_refs"]} == {
+        "historical_features_2024-01_2026-04",
+        "trade_universe_nifty_2024-01_2026-04",
+    }

@@ -55,3 +55,8 @@ def test_v3_live_rule_backtest_calls_wrap_legacy_run(monkeypatch, tmp_path):
     assert any("v3_live_trades_pt50.csv" in p for p in names)
     assert any("v3_live_trades_hte.csv" in p for p in names)
     assert any("v3_live_report.md" in p for p in names)
+    assert "dataset_refs" in captured
+    assert {r.dataset_id for r in captured["dataset_refs"]} == {
+        "historical_features_2024-01_2026-04",
+        "trade_universe_nifty_2024-01_2026-04",
+    }
