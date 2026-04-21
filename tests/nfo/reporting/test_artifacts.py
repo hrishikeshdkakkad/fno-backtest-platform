@@ -3,12 +3,11 @@ from __future__ import annotations
 
 import json
 from datetime import date, datetime, timezone
-from pathlib import Path
 
 import pandas as pd
 import pytest
 
-from nfo.reporting.artifacts import RunDirectory, open_run_directory
+from nfo.reporting.artifacts import open_run_directory
 from nfo.specs.manifest import RunManifest
 
 

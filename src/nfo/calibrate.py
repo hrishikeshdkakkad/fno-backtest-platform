@@ -26,12 +26,9 @@ from __future__ import annotations
 
 import itertools
 import json
-import math
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable, Mapping
 
-import numpy as np
 import pandas as pd
 
 from .config import RESULTS_DIR

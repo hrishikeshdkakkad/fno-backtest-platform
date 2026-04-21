@@ -7,11 +7,9 @@ from __future__ import annotations
 
 from datetime import date
 
-import numpy as np
 import pandas as pd
-import pytest
 
-from nfo.engine.triggers import TriggerEvaluator, FireRow
+from nfo.engine.triggers import TriggerEvaluator
 from nfo.specs.strategy import (
     CapitalSpec, EntrySpec, ExitSpec, SelectionSpec, SlippageSpec,
     StrategySpec, TriggerSpec, UniverseSpec,

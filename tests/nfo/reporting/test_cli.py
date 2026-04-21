@@ -99,7 +99,8 @@ def test_cli_also_writes_master_summary(tmp_path):
     rd.write_manifest(m)
     rd.write_metrics({"total_pnl_inr": 123.0})
 
-    import subprocess, os
+    import subprocess
+    import os
     env = os.environ.copy()
     result = subprocess.run(
         [".venv/bin/python", "-m", "nfo.reporting",

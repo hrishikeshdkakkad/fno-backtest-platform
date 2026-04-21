@@ -27,7 +27,7 @@ import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Mapping, Sequence
 
 import pandas as pd
 from pydantic import BaseModel
@@ -35,7 +35,7 @@ from pydantic import BaseModel
 try:
     from parallel import Parallel
     from parallel._exceptions import APIError as ParallelAPIError
-except ImportError as exc:   # pragma: no cover — surfaced at first use
+except ImportError:   # pragma: no cover — surfaced at first use
     Parallel = None           # type: ignore[assignment]
     ParallelAPIError = Exception   # type: ignore[assignment,misc]
 

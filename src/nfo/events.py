@@ -13,7 +13,7 @@ a pure parquet-and-date filter layer that the live TUI can hammer safely.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from pathlib import Path
 from typing import Iterable, Literal
 

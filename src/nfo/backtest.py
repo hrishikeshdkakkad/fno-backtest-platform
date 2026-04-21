@@ -21,7 +21,6 @@ from datetime import date
 import pandas as pd
 
 from . import signals as _sig
-from . import spread as _sp
 from .calendar_nfo import MonthlyCycle, build_cycles
 from .client import DhanClient
 from .costs import spread_roundtrip_cost

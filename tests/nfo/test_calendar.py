@@ -4,7 +4,6 @@ from __future__ import annotations
 from datetime import date
 
 import pandas as pd
-import pytest
 
 from nfo.calendar_nfo import (
     _first_trading_day_on_or_after,

@@ -19,7 +19,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from nfo.specs.loader import load_strategy, reset_registry_for_tests
+from nfo.specs.loader import load_strategy
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]

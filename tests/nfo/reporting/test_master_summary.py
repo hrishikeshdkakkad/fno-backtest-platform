@@ -1,12 +1,11 @@
 """Tests for reporting.master_summary.generate_master_summary (master design §9.3)."""
 from __future__ import annotations
 
-import json
 from datetime import date, datetime, timezone
 from pathlib import Path
 
 from nfo.reporting.artifacts import open_run_directory
-from nfo.reporting.master_summary import MasterSummaryResult, generate_master_summary
+from nfo.reporting.master_summary import generate_master_summary
 from nfo.specs.manifest import RunManifest
 
 

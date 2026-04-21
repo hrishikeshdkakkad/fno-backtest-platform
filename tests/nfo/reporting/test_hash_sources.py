@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import textwrap
-from pathlib import Path
 
 from nfo.reporting.hash_sources import filesystem_hash_sources
 from nfo.specs.loader import load_strategy, reset_registry_for_tests

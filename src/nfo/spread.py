@@ -15,7 +15,7 @@ import pandas as pd
 
 from .client import DhanClient
 from .data import load_atm_chain_snapshot
-from .strategy import ShortCandidate, StrategyConfig, pick_short_leg
+from .strategy import StrategyConfig, pick_short_leg
 from .universe import Underlying
 
 

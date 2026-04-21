@@ -17,9 +17,8 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from nfo import cache as _cache
 from nfo.specs.loader import load_strategy, reset_registry_for_tests
-from nfo.specs.strategy import ExitSpec, SelectionSpec, StrategySpec
+from nfo.specs.strategy import ExitSpec, StrategySpec
 from nfo.universe import get as get_under
 
 

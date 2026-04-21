@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
-from pathlib import Path
 
 from nfo.monitor.snapshot import MonitorSnapshot
 from nfo.monitor.store import append_snapshot, load_snapshots

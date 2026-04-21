@@ -4,7 +4,6 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 
 import pandas as pd
-import pytest
 
 from nfo.monitor.snapshot import MonitorSnapshot, capture_snapshot
 from nfo.specs.strategy import (

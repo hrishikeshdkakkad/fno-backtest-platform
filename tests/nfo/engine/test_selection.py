@@ -9,7 +9,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from nfo.engine.cycles import CycleFires, group_fires_by_cycle
+from nfo.engine.cycles import group_fires_by_cycle
 from nfo.engine.selection import (
     select_cycle_matched,
     select_day_matched,

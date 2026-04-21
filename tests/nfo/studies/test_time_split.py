@@ -9,7 +9,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from nfo.specs.loader import load_strategy, reset_registry_for_tests
+from nfo.specs.loader import load_strategy
 from nfo.studies.time_split import TimeSplitResult, run_time_split
 
 
