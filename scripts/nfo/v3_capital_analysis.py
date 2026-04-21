@@ -208,7 +208,11 @@ def _legacy_main(argv: list[str] | None = None) -> dict[str, Any]:
     """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--pt-variant", choices=("pt50", "hte"), default="pt50",
+        # Default must match main()'s pre-parse default so a no-arg invocation
+        # regenerates the same variant whose CSV/report main() mirrors into
+        # the run dir. Drifting the defaults lets stale sibling artifacts
+        # leak into fresh runs. The documented preferred variant is "hte".
+        "--pt-variant", choices=("pt50", "hte"), default="hte",
         help="Exit variant: pt50 (50%% profit-take) or hte (hold to expiry).",
     )
     args = parser.parse_args(argv)

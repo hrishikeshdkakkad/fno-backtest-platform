@@ -183,17 +183,40 @@ def main(argv: list[str] | None = None) -> int:  # noqa: ARG001 (argv reserved f
     # (v3_live_rule_pt50.yaml @ 3.0.2 and v3_live_rule.yaml @ 3.0.1). Each variant
     # must live in its own run directory under the matching spec so the run's
     # manifest + methodology header + drift detection describe exactly the spec
-    # that produced the tables. We run the legacy body once, then wrap twice.
+    # that produced the tables. We run the legacy body once, cache the combined
+    # result, then wrap twice — each wrap SLICES the combined metrics to its
+    # own variant so the per-run metrics.json never contains the other variant's
+    # numbers.
     legacy_result: dict = {}
 
-    def run_logic_once() -> dict:
+    def _run_body_once() -> dict:
         if not legacy_result:
             legacy_result.update(_legacy_main())
-        return {
-            "metrics": legacy_result.get("metrics", {}),
-            "body_markdown": legacy_result.get("body_markdown", ""),
-            "warnings": legacy_result.get("warnings", []),
-        }
+        return legacy_result
+
+    def _make_run_logic(variant: str):
+        def run_logic() -> dict:
+            combined = _run_body_once()
+            # Keep only this variant's metrics; strip the sibling's keys.
+            all_metrics = combined.get("metrics", {}) or {}
+            own = {
+                k: v for k, v in all_metrics.items()
+                if k.startswith(f"{variant}_")
+            }
+            body = (
+                f"## {variant.upper()} live-rule replay\n\n"
+                f"Trades: **{own.get(f'{variant}_trades', 0)}**; "
+                f"Total P&L: **₹{own.get(f'{variant}_total_pnl', 0.0):,.0f}**.\n\n"
+                f"Full report at `results/nfo/v3_live_report.md` (covers both "
+                f"variants); the single CSV under `tables/` is this variant's "
+                f"per-trade detail.\n"
+            )
+            return {
+                "metrics": own,
+                "body_markdown": body,
+                "warnings": combined.get("warnings", []),
+            }
+        return run_logic
 
     per_variant = [
         ("pt50", "v3_live_rule_pt50.yaml", "v3_live_trades_pt50.csv"),
@@ -207,7 +230,7 @@ def main(argv: list[str] | None = None) -> int:  # noqa: ARG001 (argv reserved f
             study_path=ROOT / "configs" / "nfo" / "studies" / "live_replay_default.yaml",
             legacy_artifacts=[RESULTS_DIR / csv_name],
             window=(date(2024, 2, 1), date(2026, 4, 18)),
-            run_logic=run_logic_once,
+            run_logic=_make_run_logic(variant),
             runs_root=RESULTS_DIR / "runs",
             dataset_refs=_DATASET_REFS,
         )

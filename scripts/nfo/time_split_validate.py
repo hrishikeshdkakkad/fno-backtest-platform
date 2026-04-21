@@ -249,6 +249,7 @@ def _legacy_main(argv: list[str] | None = None) -> dict[str, Any]:
     log.info("Test : %d signal-days, %d trades", len(sigs_test), len(trd_test))
 
     per_variant: dict[str, dict[str, dict]] = {}
+    v3_shadow = None
     for v in variants:
         log.info("Evaluating %s (%s)", v.name, v.description)
         per_variant[v.name] = {
@@ -257,7 +258,7 @@ def _legacy_main(argv: list[str] | None = None) -> dict[str, Any]:
             "test": _rv.evaluate_variant(v, sigs_test, trd_test, atr_series),
         }
         if v.name == "V3":
-            _shadow_v3_time_split(
+            v3_shadow = _shadow_v3_time_split(
                 signals_df, trades_df, atr_series,
                 split_date=split_date,
                 window_start=window_start,
@@ -270,13 +271,48 @@ def _legacy_main(argv: list[str] | None = None) -> dict[str, Any]:
     log.info("Wrote %s", out_md)
     print()
     print(report)
+
+    # Publish the engine shadow's V3 cycle-matched train/test stats as the
+    # canonical record for this run. The run's manifest declares cycle_matched
+    # V3 from v3_frozen.yaml, so the run-scoped metrics.json + report.md MUST
+    # reflect the engine path, not the legacy multi-variant numbers. The
+    # legacy report stays at results/nfo/time_split_report.md for cross-
+    # variant review (not mirrored into the run dir).
+    metrics: dict[str, Any] = {"n_legacy_variants": int(len(per_variant))}
+    if v3_shadow is not None:
+        metrics.update({
+            "v3_n_train": int(v3_shadow.n_train),
+            "v3_n_test": int(v3_shadow.n_test),
+            "v3_verdict": str(v3_shadow.verdict),
+            "v3_train_win_rate": float(v3_shadow.train_stats.win_rate),
+            "v3_train_sharpe": float(v3_shadow.train_stats.sharpe),
+            "v3_test_win_rate": float(v3_shadow.test_stats.win_rate),
+            "v3_test_sharpe": float(v3_shadow.test_stats.sharpe),
+        })
+        body = (
+            f"## V3 cycle-matched time split (engine)\n\n"
+            f"- Split date: `{split_date.isoformat()}`\n"
+            f"- Train: {v3_shadow.n_train} trades, "
+            f"win {v3_shadow.train_stats.win_rate*100:.0f}%, "
+            f"Sharpe {v3_shadow.train_stats.sharpe:+.2f}\n"
+            f"- Test: {v3_shadow.n_test} trades, "
+            f"win {v3_shadow.test_stats.win_rate*100:.0f}%, "
+            f"Sharpe {v3_shadow.test_stats.sharpe:+.2f}\n"
+            f"- Verdict: **{v3_shadow.verdict}**\n\n"
+            f"The legacy multi-variant day-matched comparison (V3-V6) is "
+            f"emitted to `results/nfo/time_split_report.md` and is NOT "
+            f"mirrored into this run dir (different methodology from the "
+            f"cycle_matched V3 this run declares).\n"
+        )
+    else:
+        body = (
+            "Engine V3 shadow failed to run; see `results/nfo/time_split_report.md` "
+            "for the legacy multi-variant report.\n"
+        )
     return {
-        "metrics": {"n_variants": int(len(per_variant))},
-        "body_markdown": (
-            "See `tables/` for full outputs. Legacy artifacts mirrored from "
-            "`results/nfo/`.\n"
-        ),
-        "warnings": [],
+        "metrics": metrics,
+        "body_markdown": body,
+        "warnings": [] if v3_shadow is not None else ["v3_engine_shadow_failed"],
     }
 
 
