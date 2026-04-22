@@ -1,0 +1,3 @@
+label,cycles,share_all_tradable_profitable,share_some_profitable,share_first_fire_profitable,share_arbitrary_tradable_profitable,avg_first_fire_minus_avg_tradable,avg_best_minus_first_fire
+full-union,18,0.6666666666666666,0.2222222222222222,0.7777777777777778,0.8888888888888888,-38.05766135944111,901.3057414552939
+oos,8,0.75,0.25,1.0,1.0,493.31589280268616,254.05536318499958

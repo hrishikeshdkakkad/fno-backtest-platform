@@ -89,6 +89,29 @@ HARD_EVENTS: list[tuple[date, str, str]] = (
 )
 
 
+# Merge in the primary-sourced 2020-08 → 2023-12 backfill if present. The
+# backfill file is committed under configs/nfo/events/; a missing file is
+# tolerated (callers that only need forward-looking events will not load it).
+# De-duplicates on (date, kind) so re-runs don't double-count.
+def _merge_sourced_backfill() -> None:
+    global HARD_EVENTS
+    from pathlib import Path as _P
+    from nfo.events import load_sourced_backfill as _load
+
+    backfill_path = _P(__file__).resolve().parents[2] / "configs" / "nfo" / "events" / "backfill_2020_2023.yaml"
+    if not backfill_path.exists():
+        return
+    seen = {(d, k) for d, _, k in HARD_EVENTS}
+    for tup in _load(backfill_path):
+        if (tup[0], tup[2]) not in seen:
+            HARD_EVENTS.append(tup)
+            seen.add((tup[0], tup[2]))
+    HARD_EVENTS.sort(key=lambda t: (t[0], t[2]))
+
+
+_merge_sourced_backfill()
+
+
 # ── Thresholds (mirror regime_watch defaults post-tuning) ───────────────────
 VIX_RICH = 20.0
 VIX_PCT_RICH = 0.80
@@ -143,10 +166,13 @@ def _load_vix_daily(client: DhanClient | None, start: date, end: date) -> pd.Dat
                 if tail_gap > 0:
                     log.info("Using cached VIX (ends %s, requested %s, "
                              "tail gap %d days acceptable).", cmax, end, tail_gap)
-                return cached_df[
-                    (cached_df["date"] >= pd.Timestamp(start)) &
-                    (cached_df["date"] <= pd.Timestamp(end))
-                ].reset_index(drop=True)
+                # IMPORTANT: do NOT filter to [start, end] — downstream
+                # signals (vix_pct_3mo: 63-day lookback, iv_rank_12mo:
+                # 252-day lookback proxied via VIX) need history BEFORE
+                # `start`. evaluate_day slices per-day via `vix_df[...<= on_date]`,
+                # so returning the full cached range is the correct
+                # "provide as much warmup as we have" behavior.
+                return cached_df.reset_index(drop=True)
 
     # Cache insufficient and we need the network.
     if client is None:
@@ -235,12 +261,34 @@ def _try_load_cached(option_type: str, offset: int, start: str, end: str) -> pd.
     return _cache.load("rolling", _cache_key(key, start, end))
 
 
+# Session-scoped counter for dropped IV rows in _daily_snapshot_for_cycle.
+# Exposed so callers (expand_history.py) can log per-run anomaly counts
+# without re-scanning the rolling cache.
+IV_FILTER_COUNTS: dict[str, int] = {
+    "dropped_zero_or_negative": 0,
+    "dropped_above_ceiling": 0,
+    "total_dropped": 0,
+}
+
+
+def _reset_iv_filter_counts() -> None:
+    for k in IV_FILTER_COUNTS:
+        IV_FILTER_COUNTS[k] = 0
+
+
 def _daily_snapshot_for_cycle(chain: CycleChain, on_date: date) -> pd.DataFrame:
     """Return a DataFrame[strike, iv, close, delta] for puts+calls on `on_date`.
 
     Uses the last hourly bar of `on_date` from each cached offset and labels
     the rows by option_type so downstream consumers can filter.
+
+    Applies the IV anomaly filter (``nfo.data.drop_iv_anomalies``) at the
+    per-contract level. Rows with IV ≤ 0 or IV > 100% annualized are
+    dropped (not clamped) and counted in the module-level IV_FILTER_COUNTS.
+    The raw rolling-option cache is unchanged — forensics remain possible.
     """
+    from nfo.data import drop_iv_anomalies
+
     rows: list[dict] = []
     for opt_type, by_offset in (("PUT", chain.put_bars), ("CALL", chain.call_bars)):
         for offset, bars in by_offset.items():
@@ -251,8 +299,6 @@ def _daily_snapshot_for_cycle(chain: CycleChain, on_date: date) -> pd.DataFrame:
             mask = day == pd.Timestamp(on_date)
             subset = bars[mask]
             if subset.empty:
-                # Fallback: use the last bar up to this date so a weekend/no-trade
-                # day still gets the most recent known chain print.
                 prior = bars[day <= pd.Timestamp(on_date)].tail(1)
                 if prior.empty:
                     continue
@@ -266,7 +312,12 @@ def _daily_snapshot_for_cycle(chain: CycleChain, on_date: date) -> pd.DataFrame:
                 "iv": float(row["iv"]) if pd.notna(row["iv"]) else np.nan,
                 "spot": float(row["spot"]) if pd.notna(row["spot"]) else np.nan,
             })
-    return pd.DataFrame(rows)
+    snap = pd.DataFrame(rows)
+    if not snap.empty:
+        snap, counts = drop_iv_anomalies(snap)
+        for k, v in counts.items():
+            IV_FILTER_COUNTS[k] += v
+    return snap
 
 
 def _event_severity(on_date: date, dte: int) -> tuple[str, list[str]]:

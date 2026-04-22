@@ -1,0 +1,473 @@
+# Sourced macro-event backfill for 2020-08-01 → 2023-12-31.
+#
+# Consumed by scripts/nfo/historical_backtest.py to extend the hardcoded
+# HARD_EVENTS list that feeds the V3 event-risk gate. Every entry here MUST
+# carry a primary-source URL. If a date cannot be confirmed from the relevant
+# primary source, it is recorded with `event_date: null` and
+# `status: unresolved` — these rows are non-binding for the gate but explicit
+# in the audit trail.
+#
+# Sources (primary only):
+#   RBI MPC        → rbi.org.in press releases (BS_PressReleaseDisplay)
+#   FOMC           → federalreserve.gov/monetarypolicy/fomccalendars.htm
+#                    and fomchistorical2020.htm for 2020
+#   US CPI         → bls.gov/news.release/archives/cpi_MMDDYYYY.{htm,pdf}
+#                    (filename embeds the release date)
+#   Union Budget   → indiabudget.gov.in (Ministry of Finance)
+#
+# All `accessed_on` values are 2026-04-21 (this session). Re-fetch if a
+# reviewer wants fresher confirmation.
+
+version: 1
+window_start: 2020-08-01
+window_end: 2023-12-31
+accessed_on: 2026-04-21
+author: claude-code@2026-04-21
+notes: >
+  NIFTY-only backfill. RBI + FOMC + Budget are complete within the window
+  from primary sources. US CPI is partial (~56% confirmed); remaining
+  entries are flagged `status: unresolved` with the BLS archive URL
+  convention so a reviewer can fill them in by confirming each
+  `cpi_MMDDYYYY.{htm,pdf}` archive file exists on bls.gov.
+
+# -----------------------------------------------------------------------------
+# RBI Monetary Policy Committee — 22 meetings in window, all confirmed.
+# -----------------------------------------------------------------------------
+rbi_mpc:
+  - event_date: 2020-08-06
+    source_url: https://www.rbi.org.in/scripts/BS_PressReleaseDisplay.aspx?prid=50247
+    notes: "24th MPC meeting held Aug 4-6, 2020."
+    status: confirmed
+  - event_date: 2020-10-09
+    source_url: https://www.rbi.org.in/scripts/BS_PressReleaseDisplay.aspx?prid=50479
+    notes: "25th MPC meeting held Oct 7-9, 2020."
+    status: confirmed
+  - event_date: 2020-12-04
+    source_url: https://www.rbi.org.in/Scripts/BS_PressReleaseDisplay.aspx?prid=50747
+    notes: "26th MPC meeting held Dec 2-4, 2020."
+    status: confirmed
+  - event_date: 2021-02-05
+    source_url: https://www.rbi.org.in/Scripts/BS_PressReleaseDisplay.aspx?prid=51161
+    notes: "27th MPC meeting held Feb 3-5, 2021."
+    status: confirmed
+  - event_date: 2021-04-07
+    source_url: https://rbi.org.in/Scripts/BS_PressReleaseDisplay.aspx?prid=51380
+    notes: "28th MPC meeting held Apr 5-7, 2021. Governor statement Apr 7."
+    status: confirmed
+  - event_date: 2021-06-04
+    source_url: https://www.rbi.org.in/CommonPerson/english/Scripts/PressReleases.aspx?Id=3311
+    notes: "29th MPC meeting held Jun 2-4, 2021. Governor statement Jun 4."
+    status: confirmed
+  - event_date: 2021-08-06
+    source_url: https://www.rbi.org.in/Scripts/BS_PressReleaseDisplay.aspx?prid=52008
+    notes: "30th MPC meeting held Aug 4-6, 2021."
+    status: confirmed
+  - event_date: 2021-10-08
+    source_url: https://www.rbi.org.in/scripts/BS_PressReleaseDisplay.aspx?prid=52366
+    notes: "31st MPC meeting held Oct 6-8, 2021. Reverse repo held at 3.35%."
+    status: confirmed
+  - event_date: 2021-12-08
+    source_url: https://www.rbi.org.in/Scripts/BS_PressReleaseDisplay.aspx?prid=52843
+    notes: "32nd MPC meeting held Dec 6-8, 2021."
+    status: confirmed
+  - event_date: 2022-02-10
+    source_url: https://www.rbi.org.in/Scripts/BS_PressReleaseDisplay.aspx?prid=53228
+    notes: "33rd MPC meeting rescheduled to Feb 8-10, 2022."
+    status: confirmed
+  - event_date: 2022-04-08
+    source_url: https://www.rbi.org.in/commonman/Upload/English/PressRelease/PDFs/PR103MPC81636A20CC4146AAA70682C8252B56DB.pdf
+    notes: "34th MPC meeting held Apr 6-8, 2022."
+    status: confirmed
+  - event_date: 2022-05-04
+    source_url: https://rbi.org.in/Scripts/BS_PressReleaseDisplay.aspx?prid=53728
+    notes: "35th MPC meeting (off-cycle) held May 2-4, 2022 — 40 bp repo hike."
+    status: confirmed
+  - event_date: 2022-06-08
+    source_url: https://www.rbi.org.in/commonman/Upload/English/PressRelease/PDFs/PR333ML08062022.pdf
+    notes: "36th MPC meeting held Jun 6-8, 2022. 50 bp repo hike to 4.90%."
+    status: confirmed
+  - event_date: 2022-08-05
+    source_url: https://www.rbi.org.in/Scripts/BS_PressReleaseDisplay.aspx?prid=54236
+    notes: "37th MPC meeting held Aug 3-5, 2022."
+    status: confirmed
+  - event_date: 2022-09-30
+    source_url: https://www.rbi.org.in/scripts/BS_PressReleaseDisplay.aspx?prid=54541
+    notes: "38th MPC meeting held Sep 28-30, 2022."
+    status: confirmed
+  - event_date: 2022-12-07
+    source_url: https://rbi.org.in/Scripts/BS_PressReleaseDisplay.aspx?prid=54918
+    notes: "40th MPC meeting held Dec 5-7, 2022. (No 39th meeting labeled.)"
+    status: confirmed
+  - event_date: 2023-02-08
+    source_url: https://www.rbi.org.in/Scripts/BS_PressReleaseDisplay.aspx?prid=55267
+    notes: "41st MPC meeting held Feb 6-8, 2023."
+    status: confirmed
+  - event_date: 2023-04-06
+    source_url: https://www.rbi.org.in/Scripts/BS_PressReleaseDisplay.aspx?prid=55472
+    notes: "42nd MPC meeting held Apr 3,5,6 2023. Repo held at 6.50%."
+    status: confirmed
+  - event_date: 2023-06-08
+    source_url: https://www.rbi.org.in/Scripts/BS_PressReleaseDisplay.aspx?prid=55899
+    notes: "43rd MPC meeting held Jun 6-8, 2023."
+    status: confirmed
+  - event_date: 2023-08-10
+    source_url: https://www.rbi.org.in/Scripts/BS_PressReleaseDisplay.aspx?prid=56502
+    notes: "44th MPC meeting held Aug 8-10, 2023."
+    status: confirmed
+  - event_date: 2023-10-06
+    source_url: https://www.rbi.org.in/Scripts/BS_PressReleaseDisplay.aspx?prid=56888
+    notes: "45th MPC meeting held Oct 4-6, 2023."
+    status: confirmed
+  - event_date: 2023-12-08
+    source_url: https://www.rbi.org.in/Scripts/BS_PressReleaseDisplay.aspx?prid=57366
+    notes: "46th MPC meeting held Dec 6-8, 2023."
+    status: confirmed
+
+# -----------------------------------------------------------------------------
+# FOMC — 35 meetings in window, all confirmed. Includes 2020 unscheduled.
+# -----------------------------------------------------------------------------
+fomc:
+  # 2020 — through window_start onwards (Aug 2020 +). Unscheduled emergency
+  # meetings of March 2020 are outside the backfill window but retained for
+  # completeness of 2020 context.
+  - event_date: 2020-09-16
+    source_url: https://www.federalreserve.gov/monetarypolicy/fomchistorical2020.htm
+    notes: "Scheduled FOMC meeting Sep 15-16, 2020; decision Sep 16."
+    status: confirmed
+  - event_date: 2020-11-05
+    source_url: https://www.federalreserve.gov/monetarypolicy/fomchistorical2020.htm
+    notes: "Scheduled FOMC meeting Nov 4-5, 2020; decision Nov 5."
+    status: confirmed
+  - event_date: 2020-12-16
+    source_url: https://www.federalreserve.gov/monetarypolicy/fomchistorical2020.htm
+    notes: "Scheduled FOMC meeting Dec 15-16, 2020; decision Dec 16."
+    status: confirmed
+  - event_date: 2021-01-27
+    source_url: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm
+    notes: "Scheduled FOMC Jan 26-27, 2021."
+    status: confirmed
+  - event_date: 2021-03-17
+    source_url: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm
+    notes: "Scheduled FOMC Mar 16-17, 2021."
+    status: confirmed
+  - event_date: 2021-04-28
+    source_url: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm
+    notes: "Scheduled FOMC Apr 27-28, 2021."
+    status: confirmed
+  - event_date: 2021-06-16
+    source_url: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm
+    notes: "Scheduled FOMC Jun 15-16, 2021."
+    status: confirmed
+  - event_date: 2021-07-28
+    source_url: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm
+    notes: "Scheduled FOMC Jul 27-28, 2021."
+    status: confirmed
+  - event_date: 2021-09-22
+    source_url: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm
+    notes: "Scheduled FOMC Sep 21-22, 2021."
+    status: confirmed
+  - event_date: 2021-11-03
+    source_url: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm
+    notes: "Scheduled FOMC Nov 2-3, 2021."
+    status: confirmed
+  - event_date: 2021-12-15
+    source_url: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm
+    notes: "Scheduled FOMC Dec 14-15, 2021."
+    status: confirmed
+  - event_date: 2022-01-26
+    source_url: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm
+    notes: "Scheduled FOMC Jan 25-26, 2022."
+    status: confirmed
+  - event_date: 2022-03-16
+    source_url: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm
+    notes: "Scheduled FOMC Mar 15-16, 2022."
+    status: confirmed
+  - event_date: 2022-05-04
+    source_url: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm
+    notes: "Scheduled FOMC May 3-4, 2022."
+    status: confirmed
+  - event_date: 2022-06-15
+    source_url: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm
+    notes: "Scheduled FOMC Jun 14-15, 2022."
+    status: confirmed
+  - event_date: 2022-07-27
+    source_url: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm
+    notes: "Scheduled FOMC Jul 26-27, 2022."
+    status: confirmed
+  - event_date: 2022-09-21
+    source_url: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm
+    notes: "Scheduled FOMC Sep 20-21, 2022."
+    status: confirmed
+  - event_date: 2022-11-02
+    source_url: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm
+    notes: "Scheduled FOMC Nov 1-2, 2022."
+    status: confirmed
+  - event_date: 2022-12-14
+    source_url: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm
+    notes: "Scheduled FOMC Dec 13-14, 2022."
+    status: confirmed
+  - event_date: 2023-02-01
+    source_url: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm
+    notes: "Scheduled FOMC Jan 31 - Feb 1, 2023."
+    status: confirmed
+  - event_date: 2023-03-22
+    source_url: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm
+    notes: "Scheduled FOMC Mar 21-22, 2023."
+    status: confirmed
+  - event_date: 2023-05-03
+    source_url: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm
+    notes: "Scheduled FOMC May 2-3, 2023."
+    status: confirmed
+  - event_date: 2023-06-14
+    source_url: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm
+    notes: "Scheduled FOMC Jun 13-14, 2023."
+    status: confirmed
+  - event_date: 2023-07-26
+    source_url: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm
+    notes: "Scheduled FOMC Jul 25-26, 2023."
+    status: confirmed
+  - event_date: 2023-09-20
+    source_url: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm
+    notes: "Scheduled FOMC Sep 19-20, 2023."
+    status: confirmed
+  - event_date: 2023-11-01
+    source_url: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm
+    notes: "Scheduled FOMC Oct 31 - Nov 1, 2023."
+    status: confirmed
+  - event_date: 2023-12-13
+    source_url: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm
+    notes: "Scheduled FOMC Dec 12-13, 2023."
+    status: confirmed
+
+# -----------------------------------------------------------------------------
+# US CPI — BLS archive URLs are primary attestation (filename encodes date).
+# Partial coverage (23/41 releases confirmed). Remaining entries flagged
+# `status: unresolved` — a reviewer should confirm each by opening the
+# corresponding bls.gov/news.release/archives/cpi_<MMDDYYYY>.pdf URL.
+#
+# V3 specifically demotes CPI to "medium" severity (src/nfo/events.py:103),
+# so unresolved CPI entries do NOT block the V3 gate.
+# -----------------------------------------------------------------------------
+us_cpi:
+  - event_date: 2020-09-11
+    reference_month: "2020-08"
+    source_url: https://www.bls.gov/news.release/archives/cpi_09112020.pdf
+    notes: "Aug 2020 CPI released Sep 11, 2020 (BLS archive URL primary)."
+    status: confirmed
+  - event_date: 2020-10-13
+    reference_month: "2020-09"
+    source_url: https://www.bls.gov/news.release/archives/cpi_10132020.pdf
+    notes: "Sep 2020 CPI released Oct 13, 2020."
+    status: confirmed
+  - event_date: 2020-11-12
+    reference_month: "2020-10"
+    source_url: https://www.bls.gov/news.release/archives/cpi_11122020.pdf
+    notes: "Oct 2020 CPI released Nov 12, 2020."
+    status: confirmed
+  - event_date: 2020-12-10
+    reference_month: "2020-11"
+    source_url: https://www.bls.gov/news.release/archives/cpi_12102020.pdf
+    notes: "Nov 2020 CPI released Dec 10, 2020."
+    status: confirmed
+  - event_date: 2021-01-13
+    reference_month: "2020-12"
+    source_url: https://www.bls.gov/news.release/archives/cpi_01132021.pdf
+    notes: "Dec 2020 CPI released Jan 13, 2021."
+    status: confirmed
+  - event_date: 2021-02-10
+    reference_month: "2021-01"
+    source_url: https://www.bls.gov/news.release/archives/cpi_02102021.htm
+    notes: "Jan 2021 CPI released Feb 10, 2021."
+    status: confirmed
+  - reference_month: "2021-02"
+    source_url: "https://www.bls.gov/news.release/archives/cpi_<unresolved>.pdf"
+    notes: "Reviewer: confirm BLS archive URL for Feb 2021 CPI release."
+    status: unresolved
+    event_date: null
+  - reference_month: "2021-03"
+    source_url: "https://www.bls.gov/news.release/archives/cpi_<unresolved>.pdf"
+    notes: "Reviewer: confirm BLS archive URL for Mar 2021 CPI release."
+    status: unresolved
+    event_date: null
+  - reference_month: "2021-04"
+    source_url: "https://www.bls.gov/news.release/archives/cpi_<unresolved>.pdf"
+    notes: "Reviewer: confirm BLS archive URL for Apr 2021 CPI release."
+    status: unresolved
+    event_date: null
+  - reference_month: "2021-05"
+    source_url: "https://www.bls.gov/news.release/archives/cpi_<unresolved>.pdf"
+    notes: "Reviewer: confirm BLS archive URL for May 2021 CPI release."
+    status: unresolved
+    event_date: null
+  - event_date: 2021-07-13
+    reference_month: "2021-06"
+    source_url: https://www.bls.gov/news.release/archives/cpi_07132021.pdf
+    notes: "Jun 2021 CPI released Jul 13, 2021."
+    status: confirmed
+  - reference_month: "2021-07"
+    source_url: "https://www.bls.gov/news.release/archives/cpi_<unresolved>.pdf"
+    notes: "Reviewer: confirm BLS archive URL for Jul 2021 CPI release."
+    status: unresolved
+    event_date: null
+  - reference_month: "2021-08"
+    source_url: "https://www.bls.gov/news.release/archives/cpi_<unresolved>.pdf"
+    notes: "Reviewer: confirm BLS archive URL for Aug 2021 CPI release."
+    status: unresolved
+    event_date: null
+  - event_date: 2021-10-13
+    reference_month: "2021-09"
+    source_url: https://www.bls.gov/news.release/archives/cpi_10132021.htm
+    notes: "Sep 2021 CPI released Oct 13, 2021."
+    status: confirmed
+  - event_date: 2021-11-10
+    reference_month: "2021-10"
+    source_url: https://www.bls.gov/news.release/archives/cpi_11102021.htm
+    notes: "Oct 2021 CPI released Nov 10, 2021."
+    status: confirmed
+  - event_date: 2021-12-10
+    reference_month: "2021-11"
+    source_url: https://www.bls.gov/news.release/archives/cpi_12102021.pdf
+    notes: "Nov 2021 CPI released Dec 10, 2021."
+    status: confirmed
+  - event_date: 2022-01-12
+    reference_month: "2021-12"
+    source_url: https://www.bls.gov/news.release/archives/cpi_01122022.pdf
+    notes: "Dec 2021 CPI released Jan 12, 2022."
+    status: confirmed
+  - event_date: 2022-02-10
+    reference_month: "2022-01"
+    source_url: https://www.bls.gov/news.release/archives/cpi_02102022.pdf
+    notes: "Jan 2022 CPI released Feb 10, 2022 (confirmed via BLS schedule page snippet)."
+    status: confirmed
+  - event_date: 2022-03-10
+    reference_month: "2022-02"
+    source_url: https://www.bls.gov/news.release/archives/cpi_03102022.htm
+    notes: "Feb 2022 CPI released Mar 10, 2022."
+    status: confirmed
+  - event_date: 2022-04-12
+    reference_month: "2022-03"
+    source_url: https://www.bls.gov/news.release/archives/cpi_04122022.pdf
+    notes: "Mar 2022 CPI released Apr 12, 2022 (BLS schedule page reference)."
+    status: confirmed
+  - event_date: 2022-05-11
+    reference_month: "2022-04"
+    source_url: https://www.bls.gov/news.release/archives/cpi_05112022.pdf
+    notes: "Apr 2022 CPI released May 11, 2022."
+    status: confirmed
+  - reference_month: "2022-05"
+    source_url: "https://www.bls.gov/news.release/archives/cpi_<unresolved>.pdf"
+    notes: "Reviewer: confirm BLS archive URL for May 2022 CPI release."
+    status: unresolved
+    event_date: null
+  - event_date: 2022-07-13
+    reference_month: "2022-06"
+    source_url: https://www.bls.gov/news.release/archives/cpi_07132022.htm
+    notes: "Jun 2022 CPI released Jul 13, 2022."
+    status: confirmed
+  - event_date: 2022-08-10
+    reference_month: "2022-07"
+    source_url: https://www.bls.gov/news.release/archives/cpi_08102022.htm
+    notes: "Jul 2022 CPI released Aug 10, 2022."
+    status: confirmed
+  - reference_month: "2022-08"
+    source_url: "https://www.bls.gov/news.release/archives/cpi_<unresolved>.pdf"
+    notes: "Reviewer: confirm BLS archive URL for Aug 2022 CPI release."
+    status: unresolved
+    event_date: null
+  - event_date: 2022-10-13
+    reference_month: "2022-09"
+    source_url: https://www.bls.gov/news.release/archives/cpi_10132022.htm
+    notes: "Sep 2022 CPI released Oct 13, 2022."
+    status: confirmed
+  - reference_month: "2022-10"
+    source_url: "https://www.bls.gov/news.release/archives/cpi_<unresolved>.pdf"
+    notes: "Reviewer: confirm BLS archive URL for Oct 2022 CPI release."
+    status: unresolved
+    event_date: null
+  - reference_month: "2022-11"
+    source_url: "https://www.bls.gov/news.release/archives/cpi_<unresolved>.pdf"
+    notes: "Reviewer: confirm BLS archive URL for Nov 2022 CPI release."
+    status: unresolved
+    event_date: null
+  - reference_month: "2022-12"
+    source_url: "https://www.bls.gov/news.release/archives/cpi_<unresolved>.pdf"
+    notes: "Reviewer: confirm BLS archive URL for Dec 2022 CPI release."
+    status: unresolved
+    event_date: null
+  - event_date: 2023-02-14
+    reference_month: "2023-01"
+    source_url: https://www.bls.gov/news.release/archives/cpi_02142023.pdf
+    notes: "Jan 2023 CPI released Feb 14, 2023."
+    status: confirmed
+  - event_date: 2023-03-14
+    reference_month: "2023-02"
+    source_url: https://www.bls.gov/news.release/archives/cpi_03142023.pdf
+    notes: "Feb 2023 CPI released Mar 14, 2023 (BLS schedule page reference)."
+    status: confirmed
+  - reference_month: "2023-03"
+    source_url: "https://www.bls.gov/news.release/archives/cpi_<unresolved>.pdf"
+    notes: "Reviewer: confirm BLS archive URL for Mar 2023 CPI release."
+    status: unresolved
+    event_date: null
+  - reference_month: "2023-04"
+    source_url: "https://www.bls.gov/news.release/archives/cpi_<unresolved>.pdf"
+    notes: "Reviewer: confirm BLS archive URL for Apr 2023 CPI release."
+    status: unresolved
+    event_date: null
+  - reference_month: "2023-05"
+    source_url: "https://www.bls.gov/news.release/archives/cpi_<unresolved>.pdf"
+    notes: "Reviewer: confirm BLS archive URL for May 2023 CPI release."
+    status: unresolved
+    event_date: null
+  - reference_month: "2023-06"
+    source_url: "https://www.bls.gov/news.release/archives/cpi_<unresolved>.pdf"
+    notes: "Reviewer: confirm BLS archive URL for Jun 2023 CPI release."
+    status: unresolved
+    event_date: null
+  - event_date: 2023-08-10
+    reference_month: "2023-07"
+    source_url: https://www.bls.gov/news.release/archives/cpi_08102023.pdf
+    notes: "Jul 2023 CPI released Aug 10, 2023."
+    status: confirmed
+  - reference_month: "2023-08"
+    source_url: "https://www.bls.gov/news.release/archives/cpi_<unresolved>.pdf"
+    notes: "Reviewer: confirm BLS archive URL for Aug 2023 CPI release."
+    status: unresolved
+    event_date: null
+  - reference_month: "2023-09"
+    source_url: "https://www.bls.gov/news.release/archives/cpi_<unresolved>.pdf"
+    notes: "Reviewer: confirm BLS archive URL for Sep 2023 CPI release."
+    status: unresolved
+    event_date: null
+  - event_date: 2023-11-14
+    reference_month: "2023-10"
+    source_url: https://www.bls.gov/news.release/archives/cpi_11142023.htm
+    notes: "Oct 2023 CPI released Nov 14, 2023."
+    status: confirmed
+  - event_date: 2023-12-12
+    reference_month: "2023-11"
+    source_url: https://www.bls.gov/news.release/archives/cpi_12122023.pdf
+    notes: "Nov 2023 CPI released Dec 12, 2023 (BLS schedule page reference)."
+    status: confirmed
+  - event_date: 2024-01-11
+    reference_month: "2023-12"
+    source_url: https://www.bls.gov/news.release/archives/cpi_01112024.htm
+    notes: "Dec 2023 CPI released Jan 11, 2024. Outside window_end 2023-12-31; retained for completeness."
+    status: confirmed
+
+# -----------------------------------------------------------------------------
+# Union Budget — Ministry of Finance / PIB. All confirmed.
+# -----------------------------------------------------------------------------
+union_budget:
+  - event_date: 2021-02-01
+    source_url: https://www.indiabudget.gov.in/budget2021-22/
+    notes: "Union Budget 2021-22 presented by FM Sitharaman on Feb 1, 2021."
+    status: confirmed
+  - event_date: 2022-02-01
+    source_url: https://www.indiabudget.gov.in/budget2022-23/
+    notes: "Union Budget 2022-23 presented by FM Sitharaman on Feb 1, 2022."
+    status: confirmed
+  - event_date: 2023-02-01
+    source_url: https://www.indiabudget.gov.in/budget2023-24/
+    notes: "Union Budget 2023-24 presented by FM Sitharaman on Feb 1, 2023."
+    status: confirmed

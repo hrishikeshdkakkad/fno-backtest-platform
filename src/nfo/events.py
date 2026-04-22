@@ -105,6 +105,81 @@ V3_HIGH_KINDS: frozenset[str] = frozenset({"RBI", "BUDGET", "FOMC"})
 V3_EVENT_WINDOW_DAYS: int = 10
 
 
+# ── Sourced historical backfill loader ──────────────────────────────────────
+#
+# The live path (refresh_macro_events + events.parquet) only covers the
+# forward-looking window. For backtests that reach before 2024, we load a
+# committed, primary-sourced YAML (configs/nfo/events/backfill_*.yaml) and
+# merge the flattened list into scripts/nfo/historical_backtest.HARD_EVENTS.
+#
+# The YAML carries one entry per event with source_url, accessed_on, notes,
+# and an explicit status ∈ {confirmed, unresolved}. Unresolved entries have
+# `event_date: null` and are silently dropped by this loader — they are an
+# auditable placeholder in the file, not a runtime value.
+
+_BACKFILL_KINDS = {
+    "rbi_mpc": ("RBI MPC", "RBI"),
+    "fomc": ("FOMC", "FOMC"),
+    "us_cpi": ("US CPI", "CPI"),
+    "union_budget": ("Union Budget", "BUDGET"),
+}
+
+
+def load_sourced_backfill(path: Path) -> list[tuple[date, str, str]]:
+    """Load a committed event backfill YAML as (date, name, kind) tuples.
+
+    Skips any entry whose `status` is not 'confirmed' or whose
+    `event_date` is null. Returns the same tuple shape that
+    `scripts/nfo/historical_backtest.HARD_EVENTS` uses, so callers can
+    prepend/append directly.
+
+    Emits one WARN log per load with the count of `unresolved` entries
+    skipped, grouped by kind. This is the only signal that unresolved
+    entries exist at runtime — the YAML is authoritative for forensics,
+    but any consumer who treats an unresolved CPI date as "no event"
+    will at least see a warning in the log.
+
+    Raises FileNotFoundError if ``path`` does not exist (callers should
+    check existence if an optional backfill is desired).
+    """
+    import logging
+    import yaml  # local import: yaml is an optional runtime dep
+
+    raw = yaml.safe_load(Path(path).read_text())
+    out: list[tuple[date, str, str]] = []
+    unresolved_by_kind: dict[str, int] = {}
+    for yaml_key, (name, kind) in _BACKFILL_KINDS.items():
+        entries = raw.get(yaml_key) or []
+        for entry in entries:
+            status = entry.get("status")
+            if status != "confirmed":
+                if status == "unresolved" or entry.get("event_date") is None:
+                    unresolved_by_kind[kind] = unresolved_by_kind.get(kind, 0) + 1
+                continue
+            d = entry.get("event_date")
+            if d is None:
+                continue
+            # yaml.safe_load returns a datetime.date for ISO date strings —
+            # but accept raw strings too for forgiveness.
+            if not isinstance(d, date):
+                d = date.fromisoformat(str(d))
+            out.append((d, name, kind))
+    # Stable ordering: by date, then by kind to break ties deterministically.
+    out.sort(key=lambda t: (t[0], t[2]))
+
+    if unresolved_by_kind:
+        total = sum(unresolved_by_kind.values())
+        logging.getLogger("nfo.events").warning(
+            "load_sourced_backfill(%s): dropped %d unresolved entries "
+            "(%s). These are NOT included in downstream event lookups — "
+            "any `no-event` result on those dates is unverified. See the "
+            "YAML for source-resolution follow-up.",
+            path, total,
+            ", ".join(f"{k}={n}" for k, n in sorted(unresolved_by_kind.items())),
+        )
+    return out
+
+
 def v3_event_risk_flag(
     entry_date: date,
     dte: int,

@@ -223,3 +223,48 @@ def load_atm_chain_snapshot(
     if not rows:
         return pd.DataFrame(columns=["strike", "close", "iv", "spot", "offset"])
     return pd.concat(rows, ignore_index=True).sort_values("strike").reset_index(drop=True)
+
+
+# ── IV anomaly filtering ────────────────────────────────────────────────────
+#
+# Dhan's rolling_option payload occasionally returns implausible per-strike IV
+# values (300%+, zero, occasionally negative). Source of the defect is unknown
+# — possibly unit mis-parsing for specific ITM contracts — but it is
+# reproducible and contaminates any study that reads atm_iv / short_strike_iv
+# directly. The 2022 sentry (2026-04-21) surfaced 6 such rows out of 248 days.
+#
+# Policy: DROP, don't clamp. Clamping invents data; dropping keeps the
+# defect visible and auditable. Callers get a counts dict to log per-cycle.
+
+_IV_CEILING_DEFAULT_PCT = 100.0  # IV is annualized percent; NIFTY ATM crisis peak ≈ 70%.
+
+
+def drop_iv_anomalies(
+    df: pd.DataFrame,
+    *,
+    ceiling: float = _IV_CEILING_DEFAULT_PCT,
+    iv_col: str = "iv",
+) -> tuple[pd.DataFrame, dict[str, int]]:
+    """Drop rows whose IV is zero/negative or exceeds ``ceiling``.
+
+    NaN IVs pass through — "missing" is a separate concern from "anomalous".
+    Returns ``(filtered_df, counts)`` where counts has keys
+    ``dropped_zero_or_negative``, ``dropped_above_ceiling``, ``total_dropped``.
+
+    Raises ``KeyError`` if ``iv_col`` is absent.
+    """
+    if iv_col not in df.columns:
+        raise KeyError(f"{iv_col!r} column missing from frame (columns: {list(df.columns)})")
+
+    iv = df[iv_col]
+    # NaN is untouched; `<` and `>` both return False for NaN so it naturally survives.
+    zero_or_neg_mask = iv <= 0
+    above_ceiling_mask = iv > ceiling
+    drop_mask = zero_or_neg_mask | above_ceiling_mask
+
+    counts = {
+        "dropped_zero_or_negative": int(zero_or_neg_mask.sum()),
+        "dropped_above_ceiling": int(above_ceiling_mask.sum()),
+        "total_dropped": int(drop_mask.sum()),
+    }
+    return df.loc[~drop_mask].reset_index(drop=True), counts
