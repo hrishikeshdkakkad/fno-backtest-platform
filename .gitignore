@@ -30,6 +30,7 @@ data/nfo/datasets/
 results/nfo/runs/
 results/nfo/index.md
 results/nfo/latest.json
+results/nfo/master_summary.md
 
 # Legacy CSP artifacts (archived under legacy/)
 results/csp/
